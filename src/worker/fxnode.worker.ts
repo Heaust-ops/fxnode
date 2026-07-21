@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { validRequest, type Viewport, type WorkerMessage } from "../browser/protocol.js";
 import { decodeGraphDocument, save } from "../core/document.js";
-import { commandId, linkId } from "../core/types.js";
+import { commandId, linkId, nodeId } from "../core/types.js";
 import { createEngine, load, snapshot, transition, type GraphEngineState } from "../engine/engine.js";
 import { layoutGraph } from "../layout/layout-graph.js";
 import { IndexedLayoutStore } from "../layout/indexed-layout-store.js";
@@ -9,13 +9,14 @@ import { viewToWorld } from "../layout/geometry.js";
 import type { LayoutSnapshot } from "../layout/types.js";
 import { renderCanvas } from "../render/canvas-renderer.js";
 import { BLENDER_DARK_THEME } from "../render/theme.js";
-import { RenderScheduler } from "./render-scheduler.js";
+import { DirtyReason, RenderScheduler } from "./render-scheduler.js";
 import { createSession } from "./session.js";
 import { cycleEnum, scrubValue } from "./control-edit.js";
 import { boxNodes, clampResize, compatibleTargets, frameDropCandidate, groupRoots, hitTest, planLink, zoomAt } from "./interaction.js";
 import { addRampMidpoint, addRampStop, distributeColorRamp, flipColorRamp, isColorRamp, moveRampStop, removeRampStop, setRampColor, type ColorRamp } from "../catalog/color-ramp.js";
 import { appendKnifePoint, crossedLinks } from "./knife-path.js";
-import { getDescriptor } from "../catalog/registry.js";
+import { pointerLaneFence, readPointerMove } from "../browser/pointer-lane.js";
+import type { PointerFence } from "../browser/protocol.js";
 
 const scope = self as unknown as DedicatedWorkerGlobalScope;
 const session = createSession();
@@ -26,10 +27,14 @@ let context: OffscreenCanvasRenderingContext2D | null = null;
 let currentLayout: LayoutSnapshot | undefined;
 let gestureLayout:LayoutSnapshot|undefined;
 let layoutStore:IndexedLayoutStore|undefined;
+let pointerLane:SharedArrayBuffer|undefined;
+let handledPointerFence=0;
+let consumedPointerSequence=0;
 const post = (message: WorkerMessage, transfer: Transferable[] = []): void => scope.postMessage(message, transfer);
 
 const scheduler = new RenderScheduler((frameId,renderId) => {
   if (!state || !canvas || !context) return;
+  advanceCollapseAnimations(performance.now());
   const deviceWidth=Math.max(1,Math.round(viewport.width*viewport.dpr)),deviceHeight=Math.max(1,Math.round(viewport.height*viewport.dpr));if(canvas.width!==deviceWidth)canvas.width=deviceWidth;if(canvas.height!==deviceHeight)canvas.height=deviceHeight;
   const preview=session.previewPositions.size||session.previewSizes.size||session.previewValues.size;
   const nodes = preview ? Object.fromEntries(Object.entries(state.document.nodes).map(([id,node]) => {
@@ -38,21 +43,27 @@ const scheduler = new RenderScheduler((frameId,renderId) => {
     for(const [controlId,value] of values){const control=currentLayout?.controls.get(controlId);if(control?.source==="parameter"&&next.known)next={...next,parameters:{...next.parameters,[control.key]:value}};else if(control?.source==="socket-default")next={...next,sockets:next.sockets.map(socket=>socket.id===control.key?{...socket,defaultValue:value}:socket)};}
     return[id,next];
   })) : state.document.nodes;
-  const transform={ center: session.cameraCenter, zoom: session.zoom, viewport: { x: viewport.width, y: viewport.height }, dpr: viewport.dpr };const layout = nodes === state.document.nodes&&layoutStore ? layoutStore.view(transform) : layoutGraph({ ...state.document, nodes },transform);
+  const transform=currentTransform();const layout = nodes === state.document.nodes&&layoutStore ? layoutStore.view(transform) : layoutGraph({ ...state.document, nodes },transform);
   currentLayout = layout;
   renderCanvas(context, layout, BLENDER_DARK_THEME, session);
+  if(session.collapseAnimations.size)scheduler.request(renderId,DirtyReason.Preview);
   const bitmap = canvas.transferToImageBitmap();
   try { post({ protocol: 1, type: "frame", bitmap, renderId,frameId }, [bitmap]); }
   catch (error) { bitmap.close(); throw error; }
 });
 function fatal(error: unknown, code = "worker.fatal"): void { post({ protocol: 1, type: "fatal", error: { code, message: error instanceof Error ? error.message : "Worker failure" } }); scope.close(); }
 function commit(result: Extract<ReturnType<typeof transition>, { status: "committed" }>): void {
+  seedCollapseAnimations(result.mutationEnvelope.mutations,performance.now());
   layoutStore?.rebuild(result.state.document);
   post({ protocol: 1, type: "mutation", envelope: result.mutationEnvelope });
   post({ protocol: 1, type: "snapshot.event", envelope: result.snapshotEnvelope });
   scheduler.request();
 }
-function cancelGesture(): void { if(session.box)session.selectedNodes=new Set(session.box.checkpoint);delete session.drag;delete session.scrub;delete session.rampDrag;delete session.modalMove;delete session.box;delete session.linkDrag;delete session.resize;delete session.parentHighlight;delete session.pan;delete session.textEditBuffer;session.previewValues.clear();gestureLayout=undefined;session.previewPositions.clear();session.previewSizes.clear(); }
+function collapseValue(animation:import("./session.js").CollapseAnimation,now:number):number{const t=Math.max(0,Math.min(1,(now-animation.startedAt)/animation.durationMs)),eased=1-(1-t)**3;return animation.from+(animation.to-animation.from)*eased;}
+function advanceCollapseAnimations(now:number):void{for(const[id,animation]of session.collapseAnimations){animation.value=collapseValue(animation,now);if(now-animation.startedAt>=animation.durationMs)session.collapseAnimations.delete(id);}}
+function seedCollapseAnimations(mutations:readonly import("../engine/mutations.js").Mutation[],now:number):void{const changes=new Map<import("../core/types.js").NodeId,{before:import("../core/types.js").GraphNode|null;after:import("../core/types.js").GraphNode|null}>();for(const mutation of mutations)if(mutation.kind==="node.set"){const prior=changes.get(mutation.id);changes.set(mutation.id,{before:prior?prior.before:mutation.before,after:mutation.after});}for(const[id,change]of changes){if(!change.after){session.collapseAnimations.delete(id);continue;}if(!change.before||change.before.collapsed===change.after.collapsed)continue;const existing=session.collapseAnimations.get(id),from=existing?collapseValue(existing,now):(change.before.collapsed?1:0),to=change.after.collapsed?1:0,distance=Math.abs(to-from);if(distance<.001){session.collapseAnimations.delete(id);continue;}session.collapseAnimations.set(id,{from,to,value:from,startedAt:now,durationMs:120*distance});}}
+function cancelGesture(): boolean { const active=!!session.drag||!!session.scrub||!!session.rampDrag||!!session.modalMove||!!session.box||!!session.linkDrag||!!session.resize||!!session.pan||session.textEditBuffer!==undefined||!!gestureLayout||session.previewValues.size>0||session.previewPositions.size>0||session.previewSizes.size>0;if(session.box)session.selectedNodes=new Set(session.box.checkpoint);delete session.drag;delete session.scrub;delete session.rampDrag;delete session.modalMove;delete session.box;delete session.linkDrag;delete session.resize;delete session.parentHighlight;delete session.pan;delete session.textEditBuffer;session.previewValues.clear();gestureLayout=undefined;session.previewPositions.clear();session.previewSizes.clear();return active; }
+const currentTransform=()=>({center:session.cameraCenter,zoom:session.zoom,viewport:{x:viewport.width,y:viewport.height},dpr:viewport.dpr});
 function controlCommand(id:string,value?:import("../core/types.js").ParameterValue,reset=false):Parameters<typeof transition>[1]["command"]|undefined{const control=currentLayout?.controls.get(id);if(!control||control.source==="unknown")return;if(control.source==="parameter")return reset?{type:"node.parameter-reset",id:control.nodeId,key:control.key}:{type:"node.parameter",id:control.nodeId,key:control.key,value:value!};return reset?{type:"node.socket-default-reset",id:control.nodeId,socketId:control.key as import("../core/types.js").SocketId}:{type:"node.socket-default",id:control.nodeId,socketId:control.key as import("../core/types.js").SocketId,value:value!};}
 function gestureCommand(command: Parameters<typeof transition>[1]["command"]): void {
   if (!state) return; const result = transition(state,{commandId:commandId(`gesture-${state.version+1}`),expectedVersion:state.version,source:"gesture",command});
@@ -62,8 +73,8 @@ const rampValue=(id:string,layout=currentLayout)=>{const c=layout?.controls.get(
 const activeStop=(id:string,ramp:ColorRamp)=>{const node=currentLayout?.controls.get(id)?.nodeId,stored=node&&session.activeRampStopByNode.get(node);return ramp.stops.find(s=>s.id===stored)??ramp.stops[0]!;};
 function commitRamp(id:string,ramp:ColorRamp,active?:string){const c=currentLayout?.controls.get(id);if(!c)return;if(active)session.activeRampStopByNode.set(c.nodeId,active);const command=controlCommand(id,{kind:"json",value:ramp as unknown as import("../core/types.js").JsonValue});if(command)gestureCommand(command);}
 function rampAction(id:string,target:string,position?:number):void{const found=rampValue(id);if(!found)return;let {ramp}=found;const active=activeStop(id,ramp);if(target==="add"){const newId=`stop-${state!.version+1}-${ramp.stops.length}`;ramp=addRampMidpoint(ramp,active.id,newId);commitRamp(id,ramp,newId);return;}if(target==="remove"){const next=removeRampStop(ramp,active.id),survivor=next.stops.reduce((a,b)=>Math.abs(b.position-active.position)<Math.abs(a.position-active.position)?b:a);commitRamp(id,next,survivor.id);return;}if(target==="flip")ramp=flipColorRamp(ramp);else if(target==="distribute")ramp=distributeColorRamp(ramp);else if(target==="mode"){const options=["rgb","hsv","hsl"] as const;ramp={...ramp,colorMode:options[(options.indexOf(ramp.colorMode)+1)%options.length]!};}else if(target==="interpolation"){const options=["linear","ease","constant","cardinal","b-spline"] as const;ramp={...ramp,interpolation:options[(options.indexOf(ramp.interpolation)+1)%options.length]!};}else if(target==="hue"){const options=["near","far","clockwise","counter-clockwise"] as const;ramp={...ramp,hueInterpolation:options[(options.indexOf(ramp.hueInterpolation)+1)%options.length]!};}else if(target==="gradient"&&position!==undefined){const newId=`stop-${state!.version+1}-${ramp.stops.length}`;ramp=addRampStop(ramp,position,newId);commitRamp(id,ramp,newId);return;}commitRamp(id,ramp,active.id);}
-function input(event: Extract<import("../browser/protocol.js").WorkerRequest,{type:"input"}>["event"]): void {
-  if (!state || !currentLayout) return;
+function input(event: Extract<import("../browser/protocol.js").WorkerRequest,{type:"input"}>["event"],nodeMenuRequestId?:string): void {
+  if (!state) return;if(!currentLayout&&layoutStore)currentLayout=layoutStore.view(currentTransform());if(!currentLayout)return;
   if(event.kind==="focus"&&event.phase==="blur")delete session.knife;
   if(event.kind==="key"&&event.phase==="down"&&event.key==="Escape")delete session.knife;
   if (event.kind === "focus") { if(event.phase==="blur"){cancelGesture();scheduler.request();} return; }
@@ -82,13 +93,7 @@ function input(event: Extract<import("../browser/protocol.js").WorkerRequest,{ty
     if(event.key==="Enter"&&session.modalMove){finishMove();return;}
     if((event.key==="Delete"||event.key.toLowerCase()==="x")&&ids.length)gestureCommand({type:"batch",commands:ids.map(id=>({type:"node.remove",id}))});
     else if(event.key.toLowerCase()==="m"&&ids.length){
-      // Muting is only meaningful for nodes which declare a public bypass.
-      // In particular, generators must not acquire a persisted muted flag
-      // merely because they happened to be selected when M was pressed.
-      const supported=ids.filter(id=>{
-        const node=state!.document.nodes[id];
-        return !!node?.known&&!!getDescriptor(node.typeId)?.muteBypass?.length;
-      });
+      const supported=ids.filter(id=>state!.document.nodes[id]?.known&&currentLayout!.nodes.get(id)?.kind==="node");
       if(supported.length)gestureCommand({type:"batch",commands:supported.map(id=>({type:"node.mute",id,value:!state!.document.nodes[id]?.muted}))});
     }
     else if(event.key.toLowerCase()==="h"&&ids.length)gestureCommand({type:"batch",commands:ids.map(id=>({type:"node.collapse",id,value:!state!.document.nodes[id]?.collapsed}))});
@@ -99,7 +104,7 @@ function input(event: Extract<import("../browser/protocol.js").WorkerRequest,{ty
   if(event.phase==="cancel")delete session.knife;
   if(event.phase==="down"&&event.button===2&&(event.modifiers&2)!==0){cancelGesture();gestureLayout=currentLayout;session.knife={pointerId:event.pointerId,points:[event.position],crossed:new Set(),mode:(event.modifiers&1)!==0?"mute":"remove"};scheduler.request();return;}
   if(session.knife?.pointerId===event.pointerId){if(event.phase==="move"){session.knife.points=appendKnifePoint(session.knife.points,event.position);session.knife.crossed=crossedLinks(gestureLayout!,session.knife.points,session.knife.mode==="mute");scheduler.request();return;}if(event.phase==="up"){const knife=session.knife;delete session.knife;gestureLayout=undefined;const commands=[...knife.crossed].map(id=>knife.mode==="remove"?({type:"link.remove" as const,id}):({type:"link.mute" as const,id,value:!state!.document.links[id]!.muted}));if(commands.length)gestureCommand({type:"batch",commands});else scheduler.request();return;}}
-  if(event.phase==="down"&&event.button===2){cancelGesture();scheduler.request();return;}
+  if(event.phase==="down"&&event.button===2){const canceled=cancelGesture(),menuLayout=layoutStore?.view(currentTransform()),open=!!nodeMenuRequestId&&!canceled&&!!menuLayout&&hitTest(menuLayout,event.position).kind==="canvas";if(nodeMenuRequestId)post({protocol:1,type:"node-menu.result",requestId:nodeMenuRequestId,open,...(open?{viewPosition:event.position}:{})});scheduler.request();return;}
   if(event.phase==="move"){const hover=hitTest(currentLayout,event.position);if(hover.kind==="control"||hover.kind==="ramp"){session.hoveredControl=hover.id;if(hover.kind==="ramp")session.hoveredRampTarget=hover.target;else delete session.hoveredRampTarget;}else{delete session.hoveredControl;delete session.hoveredRampTarget;delete session.focusedControl;}}
   if(event.phase==="cancel"){cancelGesture();scheduler.request();return;}
   if(session.scrub?.pointerId===event.pointerId){
@@ -136,6 +141,10 @@ function input(event: Extract<import("../browser/protocol.js").WorkerRequest,{ty
 function previewMove(move:{startWorld:{x:number;y:number};origins:ReadonlyMap<import("../core/types.js").NodeId,{x:number;y:number}>},position:{x:number;y:number}):void{const layout=gestureLayout??currentLayout!;const now=viewToWorld(position,layout.transform);for(const[id,p]of move.origins)session.previewPositions.set(id,{x:p.x+now.x-move.startWorld.x,y:p.y+now.y-move.startWorld.y});const first=[...move.origins][0];if(first){const n=layout.nodes.get(first[0]);const preview=session.previewPositions.get(first[0]);const target=n&&preview?frameDropCandidate(layout,first[0],{x:n.worldPosition.x+preview.x-n.localPosition.x+n.bounds.width/2,y:n.worldPosition.y+preview.y-n.localPosition.y-n.bounds.height/2}):undefined;if(target)session.parentHighlight=target;else delete session.parentHighlight;}scheduler.request();}
 function finishMove():void{const layout=gestureLayout??currentLayout!;const commands:import("../commands/types.js").BatchCommand[]=[...session.previewPositions].map(([id,position])=>({type:"node.move",id,position}));for(const[id]of session.previewPositions){const n=layout.nodes.get(id);if(!n)continue;const target=session.parentHighlight;if((target??undefined)!==(n.parentId??undefined))commands.push({type:"node.parent",id,parentId:target??null});}cancelGesture();if(commands.length)gestureCommand({type:"batch",commands});else scheduler.request();}
 
+function applyPointerSnapshot(snapshot:import("../browser/pointer-lane.js").PointerLaneSnapshot|undefined):void{if(snapshot&&snapshot.sequence!==consumedPointerSequence){consumedPointerSequence=snapshot.sequence;input(snapshot.event);}}
+function applyPointerFence(fence:PointerFence|undefined):void{if(!fence)return;applyPointerSnapshot(fence.before);handledPointerFence=fence.generation;}
+function pollPointerLane():void{if(!pointerLane)return;const generation=pointerLaneFence(pointerLane);if(generation!==handledPointerFence)return;const move=readPointerMove(pointerLane,consumedPointerSequence);if(pointerLaneFence(pointerLane)!==generation)return;applyPointerSnapshot(move);}
+
 scope.onmessage = ({ data }: MessageEvent<unknown>) => {
   if (!validRequest(data)) {
     if (typeof data === "object" && data !== null && "protocol" in data && data.protocol === 1 && "type" in data && (data.type === "command" || data.type === "load") && "id" in data && typeof data.id === "string") {
@@ -149,10 +158,10 @@ scope.onmessage = ({ data }: MessageEvent<unknown>) => {
       if (typeof ImageBitmap === "undefined" || typeof ImageBitmap.prototype.close !== "function") { fatal(new Error("ImageBitmap.close is unavailable"), "image-bitmap.close.missing"); return; }
       const decoded = decodeGraphDocument(data.layout);
       if (!decoded.ok) { post({ protocol: 1, type: "response", id: data.id, ok: false, error: { code: "layout.invalid", message: "Invalid layout", issues: decoded.issues } }); return; }
-      state = createEngine(decoded.value, data.historyLimit);layoutStore=new IndexedLayoutStore(state.document); viewport = data.viewport; canvas = new OffscreenCanvas(1, 1); context = canvas.getContext("2d");
+      state = createEngine(decoded.value, data.historyLimit);layoutStore=new IndexedLayoutStore(state.document); viewport = data.viewport; pointerLane=data.pointerLane;handledPointerFence=0;canvas = new OffscreenCanvas(1, 1); context = canvas.getContext("2d");
       if (!context) throw new Error("OffscreenCanvas 2D unavailable");
       if (typeof canvas.transferToImageBitmap !== "function") { fatal(new Error("OffscreenCanvas.transferToImageBitmap is unavailable"), "offscreen-canvas.transfer.missing"); return; }
-      scheduler.request(1); post({ protocol: 1, type: "response", id: data.id, ok: true, value: snapshot(state) }); return;
+      scheduler.request(1);scheduler.start(pollPointerLane); post({ protocol: 1, type: "response", id: data.id, ok: true, value: snapshot(state) }); return;
     }
     if (!state) { fatal(new Error("Worker is not initialized")); return; }
     if (data.type === "command") {
@@ -161,17 +170,22 @@ scope.onmessage = ({ data }: MessageEvent<unknown>) => {
       if (result.status === "rejected") post({ protocol: 1, type: "response", id: data.id, ok: false, error: result.error });
       else { if (result.status === "committed") { state = result.state; commit(result); } post({ protocol: 1, type: "response", id: data.id, ok: true, value: { status: result.status, version: state.version } }); } return;
     }
+    if(data.type==="node.add-at-view"){
+      applyPointerFence(data.pointerFence);const result=transition(state,{commandId:commandId(data.id),expectedVersion:state.version,source:"gesture",command:{type:"node.add",nodeId:nodeId(data.nodeId),nodeType:data.nodeType,position:viewToWorld(data.viewPosition,currentTransform())}});
+      if(result.status==="rejected")post({protocol:1,type:"response",id:data.id,ok:false,error:result.error});else{if(result.status==="committed"){state=result.state;commit(result);}post({protocol:1,type:"response",id:data.id,ok:true,value:{status:result.status,version:state.version}});}return;
+    }
     if (data.type === "load") {
       cancelGesture();
       const result = load(state, data.layout, data.expected.kind === "current" ? state.version : data.expected.version, commandId(data.id));
       if (!result.ok) post({ protocol: 1, type: "response", id: data.id, ok: false, error: { code: result.issues[0]?.code ?? "layout.invalid", message: result.issues[0]?.message ?? "Invalid layout", issues: result.issues } });
-      else { state = result.state;layoutStore?.rebuild(state.document); post({ protocol: 1, type: "mutation", envelope: result.mutationEnvelope }); post({ protocol: 1, type: "snapshot.event", envelope: result.snapshotEnvelope }); scheduler.request(); post({ protocol: 1, type: "response", id: data.id, ok: true, value: { status: "committed", version: state.version } }); } return;
+      else { session.collapseAnimations.clear();state = result.state;layoutStore?.rebuild(state.document); post({ protocol: 1, type: "mutation", envelope: result.mutationEnvelope }); post({ protocol: 1, type: "snapshot.event", envelope: result.snapshotEnvelope }); scheduler.request(); post({ protocol: 1, type: "response", id: data.id, ok: true, value: { status: "committed", version: state.version } }); } return;
     }
     if (data.type === "snapshot") { post({ protocol: 1, type: "response", id: data.id, ok: true, value: snapshot(state) }); return; }
     if (data.type === "save") { post({ protocol: 1, type: "response", id: data.id, ok: true, value: save(state.document) }); return; }
     if (data.type === "viewport") { viewport = data.viewport; scheduler.request(data.renderId); return; }
     if (data.type === "frame.consumed") { scheduler.consumed(data.frameId); return; }
-    if (data.type === "dispose") scope.close();
-    if (data.type === "input") input(data.event);
+    if (data.type === "pointer.flush") { applyPointerFence(data.pointerFence); return; }
+    if (data.type === "dispose") { scheduler.stop();scope.close();return; }
+    if (data.type === "input") { applyPointerFence(data.pointerFence);input(data.event,data.nodeMenuRequestId); }
   } catch (error) { fatal(error); }
 };

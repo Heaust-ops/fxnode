@@ -78,7 +78,7 @@ test("reroute effective mute is red without changing downstream authored flags",
   expect(await page.evaluate(() => {const c=document.querySelector<HTMLCanvasElement>("#link-tools")!,d=c.getContext("2d")!.getImageData(590,420,250,100).data;let n=0;for(let i=0;i<d.length;i+=4)if(d[i]!>150&&d[i+1]!<110)n++;return n;})).toBeGreaterThan(5);
 });
 
-test("M toggles declared Math/Transform bypasses and is a Noise no-op", async ({ page }) => {
+test("M mutes operators with bypasses and visibly grays generators", async ({ page }) => {
   const canvas=await open(page);
   for (const [id,point] of [["math-a",MAP.mathAHeader],["transform",MAP.transformHeader]] as const) {
     await canvas.click({position:point}); const prior=await publicState(page), before=prior.snapshot.version; await canvas.press("m"); const muted=await publicState(page);
@@ -88,5 +88,6 @@ test("M toggles declared Math/Transform bypasses and is a Noise no-op", async ({
     expect(await page.evaluate(({x,y}) => {const c=document.querySelector<HTMLCanvasElement>("#link-tools")!,d=c.getContext("2d")!.getImageData(x-100,y,200,100).data;let n=0;for(let i=0;i<d.length;i+=4)if(d[i]!>150&&d[i+1]!<110)n++;return n;},point)).toBeGreaterThan(5);
     await page.keyboard.press("Control+z"); expect((await publicState(page)).save.nodes.find(n=>n.id===id)?.muted).toBe(false);
   }
-  await canvas.click({position:MAP.noiseHeader}); const before=await publicState(page); await canvas.press("m"); expect(await publicState(page)).toEqual(before);
+  await canvas.click({position:MAP.noiseHeader}); const before=await publicState(page),beforeLight=await page.evaluate(()=>{const c=document.querySelector<HTMLCanvasElement>("#link-tools")!,d=c.getContext("2d")!.getImageData(780,550,165,85).data;let n=0;for(let i=0;i<d.length;i+=4)n+=d[i]!+d[i+1]!+d[i+2]!;return n;});await canvas.press("m");await page.evaluate(()=>window.linkToolsTest.api!.whenRendered());const muted=await publicState(page),afterLight=await page.evaluate(()=>{const c=document.querySelector<HTMLCanvasElement>("#link-tools")!,d=c.getContext("2d")!.getImageData(780,550,165,85).data;let n=0;for(let i=0;i<d.length;i+=4)n+=d[i]!+d[i+1]!+d[i+2]!;return n;});
+  expect(muted.save.nodes.find(n=>n.id==="noise")?.muted).toBe(true);expect(muted.snapshot.version).toBe(before.snapshot.version+1);expect(afterLight).toBeLessThan(beforeLight*.8);await page.keyboard.press("Control+z");expect((await publicState(page)).save.nodes.find(n=>n.id==="noise")?.muted).toBe(false);
 });

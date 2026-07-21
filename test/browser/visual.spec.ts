@@ -29,4 +29,20 @@ test("@visual deterministic example canvas", async ({ page }) => {
   const second = await canvas.screenshot();
   expect(second.equals(first)).toBe(true);
   await expect(canvas).toHaveScreenshot("phase-4-example.png", { animations: "disabled" });
+
+  await canvas.click({ position: { x: 320, y: 160 } });
+  await canvas.click({ position: { x: 520, y: 140 }, modifiers: ["Shift"] });
+  await page.evaluate(() => window.fxnodeExample.api!.whenRendered());
+  const selection = await canvas.evaluate(element => {
+    const context = (element as HTMLCanvasElement).getContext("2d")!;
+    const pixels = context.getImageData(0, 0, 1200, 640).data;
+    let selected = 0, expanded = 0;
+    for (let y = 150; y < 260; y++) for (let x = 295; x < 485; x++) {
+      const index=(y*1200+x)*4;
+      if(pixels[index]===237&&pixels[index+1]===87&&pixels[index+2]===0&&pixels[index+3]===255){selected++;if(x<299)expanded++;}
+    }
+    return { selected, expanded };
+  });
+  expect(selection.selected).toBeGreaterThan(100);
+  expect(selection.expanded).toBe(0);
 });

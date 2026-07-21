@@ -1,19 +1,24 @@
 import type { Command } from "../commands/types.js";
 import type { GraphLayoutV2, GraphSnapshot } from "../core/types.js";
 import type { MutationEnvelope, SnapshotEnvelope } from "../engine/engine.js";
+import type { PointerLaneSnapshot } from "./pointer-lane.js";
+import { CATALOG_NODE_IDS, type BuiltinNodeTypeId } from "../catalog/scope.js";
 
 export const PROTOCOL_VERSION = 1 as const;
 export type VersionExpectation = { readonly kind: "current" } | { readonly kind: "exact"; readonly version: number };
 export type WorkerRequest =
-  | { protocol: 1; type: "init"; id: string; layout: unknown; historyLimit: number; viewport: Viewport }
+  | { protocol: 1; type: "init"; id: string; layout: unknown; historyLimit: number; viewport: Viewport; pointerLane?: SharedArrayBuffer }
   | { protocol: 1; type: "command"; id: string; command: Command; expected: VersionExpectation }
   | { protocol: 1; type: "load"; id: string; layout: unknown; expected: VersionExpectation }
   | { protocol: 1; type: "snapshot" | "save"; id: string }
   | { protocol: 1; type: "viewport"; viewport: Viewport; renderId: number }
-  | { protocol: 1; type: "input"; event: InputEventWire }
+  | { protocol: 1; type: "input"; event: InputEventWire; pointerFence?: PointerFence; nodeMenuRequestId?: string }
+  | { protocol: 1; type: "node.add-at-view"; id:string;nodeId:string;nodeType:BuiltinNodeTypeId;viewPosition:{x:number;y:number};pointerFence?:PointerFence }
+  | { protocol: 1; type: "pointer.flush"; pointerFence: PointerFence }
   | { protocol: 1; type: "frame.consumed"; frameId: number }
   | { protocol: 1; type: "dispose" };
 export interface Viewport { width: number; height: number; dpr: number }
+export interface PointerFence { readonly generation: number; readonly before?: PointerLaneSnapshot }
 export type InputEventWire =
   | { kind: "pointer"; phase: "down" | "move" | "up" | "cancel"; pointerId: number; pointerType: string; position: { x: number; y: number }; button: number; buttons: number; modifiers: number }
   | { kind: "wheel"; position: { x: number; y: number }; delta: { x: number; y: number }; modifiers: number }
@@ -25,6 +30,7 @@ export type WorkerMessage =
   | { protocol: 1; type: "mutation"; envelope: MutationEnvelope }
   | { protocol: 1; type: "snapshot.event"; envelope: SnapshotEnvelope }
   | { protocol: 1; type: "frame"; bitmap: ImageBitmap; renderId: number; frameId:number }
+  | { protocol: 1; type: "node-menu.result"; requestId:string;open:boolean;viewPosition?:{x:number;y:number} }
   | { protocol: 1; type: "fatal"; error: { code: string; message: string } };
 
 const record = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -32,14 +38,16 @@ const exact = (v: Record<string, unknown>, keys: readonly string[]): boolean => 
 export function validViewport(v: unknown): v is Viewport { return record(v) && exact(v, ["width", "height", "dpr"]) && typeof v.width === "number" && Number.isFinite(v.width) && v.width >= 0 && v.width <= 8192 && typeof v.height === "number" && Number.isFinite(v.height) && v.height >= 0 && v.height <= 8192 && v.width * v.height <= 16_777_216 && typeof v.dpr === "number" && Number.isFinite(v.dpr) && v.dpr > 0 && v.dpr <= 4; }
 export function validRequest(v: unknown): v is WorkerRequest {
   if (!record(v) || v.protocol !== 1 || typeof v.type !== "string") return false;
-  if (v.type === "init") return exact(v, ["protocol","type","id","layout","historyLimit","viewport"]) && typeof v.id === "string" && Number.isSafeInteger(v.historyLimit) && (v.historyLimit as number) >= 0 && (v.historyLimit as number) <= 1000 && validViewport(v.viewport);
+  if (v.type === "init") return Object.keys(v).every(k => ["protocol","type","id","layout","historyLimit","viewport","pointerLane"].includes(k)) && ["protocol","type","id","layout","historyLimit","viewport"].every(k => k in v) && typeof v.id === "string" && Number.isSafeInteger(v.historyLimit) && (v.historyLimit as number) >= 0 && (v.historyLimit as number) <= 1000 && validViewport(v.viewport) && (v.pointerLane === undefined || (typeof SharedArrayBuffer === "function" && v.pointerLane instanceof SharedArrayBuffer));
   if (v.type === "command") return exact(v, ["protocol","type","id","command","expected"]) && typeof v.id === "string" && validCommand(v.command) && validExpectation(v.expected);
   if (v.type === "load") return exact(v, ["protocol","type","id","layout","expected"]) && typeof v.id === "string" && validExpectation(v.expected);
   if (v.type === "snapshot" || v.type === "save") return exact(v, ["protocol","type","id"]) && typeof v.id === "string";
   if (v.type === "viewport") return exact(v, ["protocol","type","viewport","renderId"]) && validViewport(v.viewport) && Number.isSafeInteger(v.renderId);
   if (v.type === "frame.consumed") return exact(v, ["protocol","type","frameId"]) && Number.isSafeInteger(v.frameId);
   if (v.type === "dispose") return exact(v, ["protocol","type"]);
-  return v.type === "input" && exact(v, ["protocol","type","event"]) && validInput(v.event);
+  if (v.type === "pointer.flush") return exact(v,["protocol","type","pointerFence"]) && validPointerFence(v.pointerFence);
+  if(v.type==="node.add-at-view")return Object.keys(v).every(k=>["protocol","type","id","nodeId","nodeType","viewPosition","pointerFence"].includes(k))&&["protocol","type","id","nodeId","nodeType","viewPosition"].every(k=>k in v)&&id(v.id)&&id(v.nodeId)&&CATALOG_NODE_IDS.includes(v.nodeType as BuiltinNodeTypeId)&&finitePoint(v.viewPosition)&&(v.pointerFence===undefined||validPointerFence(v.pointerFence));
+  return v.type === "input" && Object.keys(v).every(k => ["protocol","type","event","pointerFence","nodeMenuRequestId"].includes(k)) && ["protocol","type","event"].every(k => k in v) && validInput(v.event) && (v.pointerFence === undefined || validPointerFence(v.pointerFence)) && (v.nodeMenuRequestId===undefined||id(v.nodeMenuRequestId));
 }
 const finitePoint = (v: unknown): boolean => record(v) && exact(v,["x","y"]) && typeof v.x === "number" && Number.isFinite(v.x) && typeof v.y === "number" && Number.isFinite(v.y);
 function validInput(v: unknown): v is InputEventWire {
@@ -48,6 +56,9 @@ function validInput(v: unknown): v is InputEventWire {
   if (v.kind === "wheel") return exact(v,["kind","position","delta","modifiers"]) && finitePoint(v.position) && finitePoint(v.delta) && Number.isInteger(v.modifiers);
   if (v.kind === "key") return exact(v,["kind","phase","key","code","repeat","modifiers"]) && ["down","up"].includes(String(v.phase)) && typeof v.key === "string" && typeof v.code === "string" && typeof v.repeat === "boolean" && Number.isInteger(v.modifiers);
   return v.kind === "focus" && exact(v,["kind","phase"]) && (v.phase === "focus" || v.phase === "blur");
+}
+function validPointerFence(v: unknown): v is PointerFence {
+  return record(v) && Object.keys(v).every(k=>["generation","before"].includes(k)) && "generation" in v && Number.isInteger(v.generation) && (v.before===undefined || (record(v.before) && exact(v.before,["sequence","event"]) && Number.isInteger(v.before.sequence) && validInput(v.before.event) && record(v.before.event) && v.before.event.kind==="pointer" && v.before.event.phase==="move"));
 }
 const id = (v: unknown): boolean => typeof v === "string" && v.length > 0 && v.length <= 512;
 function validCommand(v: unknown, nested = false): v is Command {
@@ -75,6 +86,7 @@ export function validWorkerMessage(v: unknown): v is WorkerMessage {
   if (v.type === "frame") return exact(v,["protocol","type","bitmap","renderId","frameId"]) && typeof ImageBitmap !== "undefined" && v.bitmap instanceof ImageBitmap && Number.isSafeInteger(v.renderId) && Number.isSafeInteger(v.frameId);
   if (v.type === "mutation") return exact(v,["protocol","type","envelope"]) && record(v.envelope) && Number.isSafeInteger(v.envelope.version);
   if (v.type === "snapshot.event") return exact(v,["protocol","type","envelope"]) && record(v.envelope) && Number.isSafeInteger(v.envelope.version);
+  if(v.type==="node-menu.result")return Object.keys(v).every(k=>["protocol","type","requestId","open","viewPosition"].includes(k))&&["protocol","type","requestId","open"].every(k=>k in v)&&id(v.requestId)&&typeof v.open==="boolean"&&(v.open?finitePoint(v.viewPosition):v.viewPosition===undefined);
   if (v.type === "fatal") return exact(v,["protocol","type","error"]) && record(v.error) && exact(v.error,["code","message"]) && typeof v.error.code === "string" && typeof v.error.message === "string";
   return v.type === "response" && typeof v.id === "string" && typeof v.ok === "boolean" && (v.ok ? Object.keys(v).every(k => ["protocol","type","id","ok","value"].includes(k)) : exact(v,["protocol","type","id","ok","error"]) && record(v.error) && typeof v.error.code === "string" && typeof v.error.message === "string");
 }

@@ -1,7 +1,10 @@
 import type { Command } from "../commands/types.js";
 import type { GraphLayoutV2, GraphSnapshot } from "../core/types.js";
 import type { MutationEnvelope, SnapshotEnvelope } from "../engine/engine.js";
-import { validWorkerMessage, type VersionExpectation, type WorkerRequest } from "./protocol.js";
+import { validWorkerMessage, type InputEventWire, type PointerFence, type VersionExpectation, type WorkerRequest } from "./protocol.js";
+import { advancePointerLaneFence, createPointerLane, publishPointerMove, supportsPointerLane, type PointerLaneSnapshot, type PointerMoveWire } from "./pointer-lane.js";
+import { createAddNodeMenu, type AddNodeMenu } from "./add-node-menu.js";
+import type { BuiltinNodeTypeId } from "../catalog/scope.js";
 import defaultWorkerUrl from "../worker/fxnode.worker.ts?worker&url";
 
 export interface FxNodeIssue { readonly code: string; readonly message: string; readonly path?: string }
@@ -54,8 +57,13 @@ class FxNodeClient implements FxNode {
   private readonly observer: ResizeObserver;
   private readonly originalTabIndex: string | null;
   private readonly originalTouchAction: string;
+  private latestPointerMove: PointerLaneSnapshot | undefined;
+  private knifePointerId: number | undefined;
+  private lanePointerId: number | undefined;
+  private pendingNodeMenuRequestId: string | undefined;
+  private readonly addNodeMenu: AddNodeMenu;
 
-  constructor(private readonly canvas: HTMLCanvasElement, private readonly worker: Worker) {
+  constructor(private readonly canvas: HTMLCanvasElement, private readonly worker: Worker, private readonly pointerLane?: SharedArrayBuffer) {
     this.originalTabIndex = canvas.getAttribute("tabindex");
     this.originalTouchAction = canvas.style.touchAction;
     canvas.tabIndex = canvas.tabIndex < 0 ? 0 : canvas.tabIndex;
@@ -65,6 +73,7 @@ class FxNodeClient implements FxNode {
     window.addEventListener("resize", this.viewport);
     for (const name of INPUT_EVENTS) canvas.addEventListener(name, this.input, { passive: name !== "wheel" });
     canvas.addEventListener("contextmenu", this.preventContextMenu);
+    this.addNodeMenu=createAddNodeMenu(canvas,(typeId,viewPosition)=>this.addNodeAt(typeId,viewPosition));
     worker.onmessage = this.onMessage;
     worker.onerror = () => this.shutdown(new FxNodeCapabilityError("The FxNode module worker failed to load. Check workerUrl, CSP worker-src, URL accessibility, and JavaScript MIME type.", "worker.load"));
     worker.onmessageerror = () => this.shutdown(new FxNodeProtocolError("The FxNode worker sent an uncloneable message"));
@@ -72,7 +81,7 @@ class FxNodeClient implements FxNode {
 
   async initialize(layout: unknown, historyLimit: number): Promise<void> {
     const timeout = window.setTimeout(() => this.shutdown(new FxNodeCapabilityError("FxNode worker startup timed out. Check workerUrl, CSP worker-src, URL accessibility, and JavaScript MIME type.", "worker.timeout")), STARTUP_TIMEOUT_MS);
-    try { await this.post({ type: "init", layout, historyLimit, viewport: this.size() }); }
+    try { await this.post({ type: "init", layout, historyLimit, viewport: this.size(), ...(this.pointerLane ? { pointerLane: this.pointerLane } : {}) }); }
     finally { clearTimeout(timeout); }
   }
 
@@ -88,6 +97,7 @@ class FxNodeClient implements FxNode {
         else pending.reject(new FxNodeWorkerError(data.error.message, data.error.code, data.error.issues as readonly FxNodeIssue[] | undefined));
       } else if (data.type === "mutation") this.notify(this.mutations, data.envelope);
       else if (data.type === "snapshot.event") this.notify(this.snapshots, data.envelope);
+      else if(data.type==="node-menu.result"){if(data.requestId!==this.pendingNodeMenuRequestId)return;this.pendingNodeMenuRequestId=undefined;if(data.open&&data.viewPosition)this.addNodeMenu.open(data.viewPosition);}
       else if (data.type === "fatal") this.shutdown(new FxNodeWorkerError(data.error.message, data.error.code));
       else this.consumeFrame(data);
     } finally { recognizableBitmap?.close(); }
@@ -122,10 +132,12 @@ class FxNodeClient implements FxNode {
   }
   private rejectBarrier(id: number, error: unknown): void { for (const item of this.barriers.get(id) ?? []) item.reject(error); this.barriers.delete(id); }
   private size = () => ({ width: Math.min(8192, this.canvas.clientWidth || this.canvas.width || 1), height: Math.min(8192, this.canvas.clientHeight || this.canvas.height || 1), dpr: Math.min(4, window.devicePixelRatio || 1) });
-  private readonly viewport = (): void => { if (!this.terminalError) { this.renderId++; this.safePost({ protocol: 1, type: "viewport", viewport: this.size(), renderId: this.renderId }); } };
+  private readonly viewport = (): void => { this.pendingNodeMenuRequestId=undefined;this.addNodeMenu.close(false);if (!this.terminalError && this.flushPointerLane()) { this.renderId++; this.requiredPost({ protocol: 1, type: "viewport", viewport: this.size(), renderId: this.renderId }); } };
   private safePost(message: WorkerRequest): boolean { try { this.worker.postMessage(message); return true; } catch { return false; } }
+  private requiredPost(message: WorkerRequest): boolean { if(this.safePost(message))return true;this.shutdown(new FxNodeProtocolError("Unable to send a message to the FxNode worker"));return false; }
   private post<T>(message: RpcRequest): Promise<T> {
     if (this.terminalError) return Promise.reject(this.terminalError);
+    if ((message.type === "command" || message.type === "load") && !this.flushPointerLane()) return Promise.reject(this.terminalError!);
     const id = crypto.randomUUID();
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: value => resolve(value as T), reject });
@@ -138,15 +150,16 @@ class FxNodeClient implements FxNode {
     if (this.terminalError) return Promise.reject(this.terminalError);
     const id = ++this.renderId;
     if (target) this.copies.set(id, new Set([target]));
-    this.safePost({ protocol: 1, type: "viewport", viewport: this.size(), renderId: id });
+    if(!this.flushPointerLane()||!this.requiredPost({ protocol: 1, type: "viewport", viewport: this.size(), renderId: id }))return Promise.reject(this.terminalError!);
     return new Promise((resolve, reject) => this.barriers.set(id, [...this.barriers.get(id) ?? [], { resolve, reject }]));
   }
   private readonly preventContextMenu = (event: Event): void => event.preventDefault();
   private readonly input = (event: Event): void => {
     if (this.terminalError) return;
+    if(event instanceof PointerEvent&&event.type==="pointerdown"||event instanceof WheelEvent||event instanceof KeyboardEvent){this.pendingNodeMenuRequestId=undefined;this.addNodeMenu.close(false);}
     const rect = this.canvas.getBoundingClientRect();
     const mods = (value: MouseEvent | KeyboardEvent) => (value.altKey ? 1 : 0) | (value.ctrlKey ? 2 : 0) | (value.metaKey ? 4 : 0) | (value.shiftKey ? 8 : 0);
-    let wire: Extract<WorkerRequest, { type: "input" }>["event"];
+    let wire: InputEventWire;
     if (event instanceof PointerEvent) {
       const phase = event.type === "pointerdown" ? "down" : event.type === "pointermove" ? "move" : event.type === "pointerup" ? "up" : "cancel";
       wire = { kind: "pointer", phase, pointerId: event.pointerId, pointerType: event.pointerType, position: { x: event.clientX - rect.left, y: event.clientY - rect.top }, button: event.button, buttons: event.buttons, modifiers: mods(event) };
@@ -164,10 +177,36 @@ class FxNodeClient implements FxNode {
     } else if (event instanceof KeyboardEvent) {
       wire = { kind: "key", phase: event.type === "keydown" ? "down" : "up", key: event.key, code: event.code, repeat: event.repeat, modifiers: mods(event) };
     } else wire = { kind: "focus", phase: event.type === "focus" ? "focus" : "blur" };
-    this.safePost({ protocol: 1, type: "input", event: wire });
+    if (wire.kind === "pointer" && wire.phase === "move" && this.pointerLane && this.knifePointerId !== wire.pointerId && (this.lanePointerId === undefined || this.lanePointerId === wire.pointerId)) {
+      const sequence = publishPointerMove(this.pointerLane, wire as PointerMoveWire);
+      if (sequence !== undefined) { this.latestPointerMove = { sequence, event: wire as PointerMoveWire }; return; }
+    }
+    const nodeMenuRequestId=event instanceof PointerEvent&&wire.kind==="pointer"&&wire.phase==="down"&&wire.button===2&&(wire.modifiers&2)===0?crypto.randomUUID():undefined;
+    if(nodeMenuRequestId)this.pendingNodeMenuRequestId=nodeMenuRequestId;
+    this.sendInput(wire,nodeMenuRequestId);
+    if (wire.kind === "pointer" && wire.phase === "down" && this.lanePointerId === undefined) this.lanePointerId = wire.pointerId;
+    if (wire.kind === "pointer" && wire.phase === "down" && wire.button === 2 && (wire.modifiers & 2) !== 0) this.knifePointerId = wire.pointerId;
+    if (wire.kind === "pointer" && (wire.phase === "up" || wire.phase === "cancel")) { if(this.knifePointerId === wire.pointerId)this.knifePointerId = undefined;if(this.lanePointerId === wire.pointerId)this.lanePointerId = undefined; }
   };
 
+  private nextPointerFence(): PointerFence | undefined {
+    if (!this.pointerLane) return undefined;
+    const generation = advancePointerLaneFence(this.pointerLane);
+    return this.latestPointerMove ? { generation, before: this.latestPointerMove } : { generation };
+  }
+  private flushPointerLane(): boolean {
+    const pointerFence = this.nextPointerFence();
+    return !pointerFence || this.requiredPost({ protocol: 1, type: "pointer.flush", pointerFence });
+  }
+  private sendInput(event: InputEventWire,nodeMenuRequestId?:string): void {
+    const pointerFence = this.nextPointerFence();
+    this.requiredPost({ protocol: 1, type: "input", event, ...(pointerFence ? { pointerFence } : {}),...(nodeMenuRequestId?{nodeMenuRequestId}:{}) });
+  }
+
+  private addNodeAt(nodeType:BuiltinNodeTypeId,viewPosition:{x:number;y:number}):void{const pointerFence=this.nextPointerFence();void this.post<CommandReceipt>({type:"node.add-at-view",nodeId:crypto.randomUUID(),nodeType,viewPosition,...(pointerFence?{pointerFence}:{})}).catch(error=>console.error("FxNode add-node menu failed",error));}
+
   dispatch(intent: CommandIntent, options?: { expectedVersion?: number }): Promise<CommandReceipt> {
+    this.addNodeMenu.close(false);
     let command = intent as Command;
     if (intent.type === "node.add" && !intent.nodeId) command = { ...intent, nodeId: crypto.randomUUID() } as Command;
     if (intent.type === "link.add" && !intent.link.id) command = { ...intent, link: { ...intent.link, id: crypto.randomUUID() } } as Command;
@@ -190,6 +229,7 @@ class FxNodeClient implements FxNode {
     this.observer.disconnect(); window.removeEventListener("resize", this.viewport);
     for (const name of INPUT_EVENTS) this.canvas.removeEventListener(name, this.input);
     this.canvas.removeEventListener("contextmenu", this.preventContextMenu);
+    this.addNodeMenu.destroy();this.pendingNodeMenuRequestId=undefined;
     if (this.originalTabIndex === null) this.canvas.removeAttribute("tabindex"); else this.canvas.setAttribute("tabindex", this.originalTabIndex);
     this.canvas.style.touchAction = this.originalTouchAction;
     for (const pointerId of [1, 2, 3, 4, 5]) try { if (this.canvas.hasPointerCapture(pointerId)) this.canvas.releasePointerCapture(pointerId); } catch { /* detached canvas */ }
@@ -211,7 +251,8 @@ export async function createFxNode({ canvas, layout, historyLimit = 100, workerU
   let worker: Worker;
   try { worker = new Worker(url, { type: "module" }); }
   catch { throw new FxNodeCapabilityError("Unable to construct the FxNode module worker. Check workerUrl and CSP worker-src.", "worker.construct"); }
-  const client = new FxNodeClient(canvas, worker);
+  const pointerLane = supportsPointerLane() ? createPointerLane() : undefined;
+  const client = new FxNodeClient(canvas, worker, pointerLane);
   try { await client.initialize(layout, historyLimit); return client; }
   catch (error) { client.destroy(); throw error; }
 }

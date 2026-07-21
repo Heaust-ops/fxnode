@@ -12,7 +12,7 @@
 | Compositor Image | Partial by design | Image-user fields are represented and browser-tested. Dynamic multilayer/view/pass sockets require host resource metadata. |
 | Color Balance | Implemented structurally | Lift/Gamma/Gain, Offset/Power/Slope, and White Point layouts are browser-tested. “Master Color Grading” is an example label, not a Blender type. |
 | Knife and link mute | Implemented | Ctrl-RMB and Ctrl-Alt-RMB freehand gestures are browser-tested as one atomic version/history entry. |
-| Node mute bypass | Implemented for declared compatible pairs | Red bypass curves are derived presentation. There is no graph evaluation. |
+| Node mute | Implemented | `M` grays every ordinary known node; declared compatible pairs additionally receive derived red bypass curves. There is no graph evaluation. |
 | Pixel-exact Blender appearance | Not established | Blender captures remain 0/8 pending. Playwright images are fxnode regression and structural-parity evidence only. |
 
 ## Image Texture and Compositor Image
@@ -45,12 +45,13 @@ Dimensions and fractal Type drive V2 `in`/`equals` visibility expressions. Vecto
 
 `Ctrl`+RMB draws a captured freehand knife and atomically removes every crossed visible effective link. `Ctrl`+`Alt`+RMB uses the same gesture to toggle authored link mute instead; muted and reroute-propagated links are red and do not suppress input defaults. Escape, pointer cancellation, and blur cancel without history. Each completed gesture is one version/event/history entry.
 
-`M` toggles selected node mute. Muted Math, Vector Math, Mix, Set Position, Transform Geometry, and reroute nodes show only explicitly declared, type-compatible red bypass curves. Generator and type-incompatible nodes intentionally have no bypass. Bypasses are layout-only; fxnode still does not evaluate graphs.
+`M` toggles mute for selected ordinary known nodes, including generators. Every muted node receives a clipped neutral overlay. Math, Vector Math, Mix, Set Position, and Transform Geometry additionally show explicitly declared, type-compatible red bypass curves; generator and type-incompatible nodes intentionally have no fabricated bypass. Bypasses are layout-only; fxnode still does not evaluate graphs. Collapse state is immediate and undoable while the header chevron rotates between expanded/down and collapsed/right with a short worker-owned animation.
 
 ### Shortcut table
 
 | Shortcut | Behavior |
 |---|---|
+| RMB on empty canvas | Open searchable add-node dialog |
 | `Ctrl`+RMB drag | Knife/remove crossed effective links |
 | `Ctrl`+`Alt`+RMB drag | Toggle mute on crossed authored links |
 | `M` | Toggle selected node mute |

@@ -6,7 +6,7 @@ import type { RenderTheme } from "./theme.js";
 import { isColorRamp, sampleColorRamp } from "../catalog/color-ramp.js";
 
 export interface InteractionRenderState { readonly knife?:{points:readonly {x:number;y:number}[];crossed:ReadonlySet<LinkId>;mode:"remove"|"mute"} }
-export interface InteractionRenderState { readonly selectedNodes: ReadonlySet<NodeId>; readonly selectedLinks?:ReadonlySet<LinkId>; readonly activeNode?: NodeId; readonly hoverNode?: NodeId; readonly focusedControl?: string; readonly hoveredControl?:string;readonly focusedRampTarget?:string;readonly hoveredRampTarget?:string;readonly activeRampStopByNode?:ReadonlyMap<NodeId,string>; readonly textEditBuffer?: string; readonly box?:{start:{x:number;y:number};current:{x:number;y:number}};readonly linkDrag?:{from:SocketId;current:{x:number;y:number};candidate?:SocketId};readonly parentHighlight?:NodeId }
+export interface InteractionRenderState { readonly selectedNodes: ReadonlySet<NodeId>; readonly selectedLinks?:ReadonlySet<LinkId>; readonly activeNode?: NodeId; readonly hoverNode?: NodeId; readonly focusedControl?: string; readonly hoveredControl?:string;readonly focusedRampTarget?:string;readonly hoveredRampTarget?:string;readonly activeRampStopByNode?:ReadonlyMap<NodeId,string>;readonly collapseAnimations?:ReadonlyMap<NodeId,{readonly value:number}>; readonly textEditBuffer?: string; readonly box?:{start:{x:number;y:number};current:{x:number;y:number}};readonly linkDrag?:{from:SocketId;current:{x:number;y:number};candidate?:SocketId};readonly parentHighlight?:NodeId }
 export interface RenderStats { readonly candidateNodes:number;readonly totalNodes:number;readonly paintedNodes:number;readonly candidateLinks:number;readonly totalLinks:number;readonly paintedLinks:number;readonly paintMs:number }
 
 function valueText(value: unknown): string {
@@ -109,7 +109,7 @@ export function renderCanvas(context: OffscreenCanvasRenderingContext2D, snapsho
     context.shadowColor = theme.shadow; context.shadowBlur = 8; context.shadowOffsetY = 3; context.beginPath(); context.roundRect(r.x, r.y, r.width, r.height, radius); context.fillStyle = theme.body; context.fill(); context.shadowColor = "transparent";
     context.save(); context.beginPath(); context.roundRect(r.x, r.y, r.width, r.height, radius); context.clip(); context.fillStyle = theme.headers[node.category]; context.fillRect(r.x, r.y, r.width, h); context.restore(); context.beginPath(); context.roundRect(r.x, r.y, r.width, r.height, radius); context.strokeStyle = theme.outline; context.lineWidth = 1; context.stroke();
     context.fillStyle = theme.text; context.font = `600 ${Math.max(9, 12 * t.zoom)}px sans-serif`; context.textBaseline = "middle"; context.fillText(node.label, r.x + 9 * t.zoom, r.y + h / 2, r.width - 18 * t.zoom);
-    context.beginPath();const cx=r.x+r.width-12*t.zoom,cy=r.y+h/2;context.moveTo(cx-4*t.zoom,cy-3*t.zoom);context.lineTo(cx+4*t.zoom,cy-3*t.zoom);context.lineTo(cx,cy+3*t.zoom);context.closePath();context.fillStyle="rgba(255,255,255,.65)";context.fill();
+    const cx=r.x+r.width-12*t.zoom,cy=r.y+h/2,collapseAmount=Math.max(0,Math.min(1,interaction?.collapseAnimations?.get(node.id)?.value??(node.collapsed?1:0)));context.save();context.translate(cx,cy);context.rotate(-Math.PI/2*collapseAmount);context.beginPath();context.moveTo(-4*t.zoom,-3*t.zoom);context.lineTo(4*t.zoom,-3*t.zoom);context.lineTo(0,3*t.zoom);context.closePath();context.fillStyle="rgba(255,255,255,.65)";context.fill();context.restore();
     context.font = `${Math.max(9, 11 * t.zoom)}px sans-serif`;
     for (const row of node.rows) {
       if (row.kind === "header" || row.kind === "category" || row.kind === "section" || row.kind === "panel" || row.kind === "placeholder") {
@@ -136,8 +136,8 @@ export function renderCanvas(context: OffscreenCanvasRenderingContext2D, snapsho
         if (control && !control.linked) paintControl(context, control, viewRect(control.bounds), theme, t.zoom, interaction);
       }
     }
-    if(node.muted){context.fillStyle="rgba(20,20,20,.35)";context.fillRect(r.x,r.y,r.width,r.height);for(const bypass of node.bypasses){const a=worldToView(bypass.from,t),b=worldToView(bypass.to,t),dx=Math.max(20,Math.abs(b.x-a.x)*.4);context.strokeStyle="#d94b4b";context.lineWidth=3;context.beginPath();context.moveTo(a.x,a.y);context.bezierCurveTo(a.x+dx,a.y,b.x-dx,b.y,b.x,b.y);context.stroke();}}
-    if (interaction?.selectedNodes.has(node.id)) { context.beginPath(); context.roundRect(r.x-2,r.y-2,r.width+4,r.height+4,radius); context.strokeStyle=node.id===interaction.activeNode?"#ffffff":"#f5a623"; context.lineWidth=2; context.stroke(); }
+    if(node.muted){context.save();context.beginPath();context.roundRect(r.x,r.y,r.width,r.height,radius);context.clip();context.fillStyle="rgba(20,20,20,.35)";context.fillRect(r.x,r.y,r.width,r.height);context.restore();for(const bypass of node.bypasses){const a=worldToView(bypass.from,t),b=worldToView(bypass.to,t),dx=Math.max(20,Math.abs(b.x-a.x)*.4);context.strokeStyle="#d94b4b";context.lineWidth=3;context.beginPath();context.moveTo(a.x,a.y);context.bezierCurveTo(a.x+dx,a.y,b.x-dx,b.y,b.x,b.y);context.stroke();}}
+    if (interaction?.selectedNodes.has(node.id)) { context.beginPath(); context.roundRect(r.x,r.y,r.width,r.height,radius); context.strokeStyle=node.id===interaction.activeNode?theme.nodeActive:theme.nodeSelected; context.lineWidth=2; context.stroke(); }
     if(!node.collapsed){context.beginPath();context.moveTo(r.x+r.width-9*t.zoom,r.y+r.height);context.lineTo(r.x+r.width,r.y+r.height-9*t.zoom);context.strokeStyle="#8b8e95";context.lineWidth=1;context.stroke();}
     context.textAlign = "left";
   }
