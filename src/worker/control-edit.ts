@@ -1,0 +1,53 @@
+import type { ValueSchema } from "../catalog/types.js";
+import type { ParameterValue } from "../core/types.js";
+import type { LayoutControl } from "../layout/types.js";
+
+export function clampNumber(value: number, schema: ValueSchema | undefined): number {
+  if (!schema) return value;
+  if (schema.type !== "number" && schema.type !== "vector" && schema.type !== "color") return value;
+  const minimum = schema.type === "color" ? 0 : schema.type === "number" ? schema.hardMin ?? schema.minimum : schema.minimum;
+  const maximum = schema.type === "color" ? 1 : schema.type === "number" ? schema.hardMax ?? schema.maximum : schema.maximum;
+  return Math.min(maximum ?? Infinity, Math.max(minimum ?? -Infinity, value));
+}
+
+export function snapNumber(value: number, schema: ValueSchema | undefined): number {
+  if (schema?.type !== "number") return value;
+  const step = schema.step ?? (schema.integer ? 1 : undefined);
+  if (!step) return value;
+  const origin = schema.hardMin ?? schema.minimum ?? 0;
+  return origin + Math.round((value - origin) / step) * step;
+}
+
+export function scrubValue(
+  control: LayoutControl,
+  original: ParameterValue,
+  component: number,
+  deltaPixels: number,
+  fine: boolean,
+  snapping: boolean,
+): ParameterValue {
+  const scale = fine ? 0.01 : 0.1;
+  const next = (value: number): number => {
+    const changed = value + deltaPixels * scale;
+    const snapped = snapping ? snapNumber(changed, control.schema) : changed;
+    const clamped = clampNumber(snapped, control.schema);
+    return control.schema?.type === "number" && control.schema.integer ? Math.round(clamped) : clamped;
+  };
+  if (original.kind === "number") return { kind: "number", value: next(original.value) };
+  if (original.kind === "vector") {
+    const value: [number, number, number] = [...original.value];
+    value[component] = next(value[component] ?? 0);
+    return { kind: "vector", value };
+  }
+  if (original.kind === "color") {
+    const value: [number, number, number, number] = [...original.value];
+    value[component] = Math.min(1, Math.max(0, next(value[component] ?? 0)));
+    return { kind: "color", value };
+  }
+  return original;
+}
+
+export function cycleEnum(values: readonly string[], current: string, direction: 1 | -1): string {
+  const index = values.indexOf(current);
+  return values[(Math.max(0, index) + direction + values.length) % values.length] ?? current;
+}

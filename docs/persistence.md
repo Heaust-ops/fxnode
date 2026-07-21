@@ -1,0 +1,9 @@
+# Persistence contract
+
+`GraphLayoutV2` (schema version 2, catalog version 2) is the durable JSON format. It contains graph/catalog versions, nodes, links, and explicitly extension-safe metadata. Links persist a `muted` flag. `GraphLayoutV1` remains accepted and migrates to V2 with links unmuted; unsupported future schema versions produce a structured `schema.future` issue. Selection, camera, hover, history, runtime/session and other transient first-party fields are rejected. Save ordering and object keys are canonicalized by `serializeGraphDocument`.
+
+Known nodes are accepted only at their supported descriptor version. Their complete parameter and socket contracts are validated using one declarative `ValueSchema`: finite bounded numbers (including integer constraints), booleans, strings/enums, finite vectors, bounded colors, and ordered color ramps with two or more RGBA stops. Editable socket `defaultValue` is current persisted state and may differ from the schema's initial `default`; output, non-editable, shader, geometry, and `any` sockets cannot acquire defaults. Every command validates the final document before an atomic commit, so the engine cannot save state its decoder rejects.
+
+Unknown type IDs and future descriptor versions remain opaque, read-only nodes. Valid JSON values—including null, arrays, and objects—round-trip unchanged and render as bounded JSON summaries. Known Color Ramp and Noise Texture v1 payloads migrate to their current descriptor versions (including the old untagged stop array and missing Noise fields). Unknown payloads are not recursively interpreted as fxnode session state. Links and geometry still receive graph-level integrity checks.
+
+`catalogVersion` uses the exported `CATALOG_VERSION`. Forward migrations are intentionally not implied by version numbers; consumers should retain unsupported nodes and extensions.

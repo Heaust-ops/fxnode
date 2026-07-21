@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.blend
+*.blend1
+.DS_Store
+test-results/
+playwright-report/
+blob-report/
+.env
+.env.*
+!.env.example

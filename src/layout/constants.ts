@@ -1,0 +1,5 @@
+export const GEOMETRY = Object.freeze({
+  unit: 20, row: 24, parameterRow: 26, header: 24, half: 12, gap: 4, corner: 7, socket: 5,
+  margin: 24, resize: 4, grid: 20, linkSamples: 12,
+  defaultWidth: 140, minWidth: 100, maxWidth: 700, frameMargin: 30, reroute: 5,
+});

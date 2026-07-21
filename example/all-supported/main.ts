@@ -1,0 +1,1 @@
+import {createFxNode} from "../../src/index.js";import fixture from "./fixture.json";const canvas=document.querySelector("canvas")!;const fxnode=await createFxNode({canvas,layout:fixture});(window as unknown as {fxnodeExample:unknown}).fxnodeExample=fxnode;

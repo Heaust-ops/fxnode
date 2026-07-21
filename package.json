@@ -1,0 +1,59 @@
+{
+  "name": "fxnode",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Internal prerelease of a clean-room, typed, worker-owned node editor",
+  "license": "MIT",
+  "type": "module",
+  "sideEffects": false,
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE.md",
+    "docs"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/heaust-ops/fxnode.git"
+  },
+  "homepage": "https://github.com/heaust-ops/fxnode#readme",
+  "bugs": {
+    "url": "https://github.com/heaust-ops/fxnode/issues"
+  },
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
+    "./headless": { "types": "./dist/headless.d.ts", "import": "./dist/headless.js" }
+  },
+  "scripts": {
+    "test": "node --import tsx --test test/*.test.ts",
+    "test:browser": "playwright test --config playwright.config.ts",
+    "test:visual": "playwright test --config playwright.visual.config.ts",
+    "test:visual:update": "playwright test --grep @visual --update-snapshots",
+    "example": "vite --host 127.0.0.1",
+    "build": "vite build && tsc -p tsconfig.build.json",
+    "check:package": "tsx tools/check-package.ts",
+    "release:check": "npm run check && npm run test:browser && npm run test:visual && npm run check:package",
+    "prepublishOnly": "npm run release:check",
+    "check": "npm run typecheck && npm test && npm run check:performance && npm run check:all-supported && npm run build && npm run check:catalog && npm run check:references",
+    "check:performance": "tsx tools/performance-phase7.ts --check",
+    "benchmark:performance": "tsx tools/performance-phase7.ts",
+    "typecheck": "tsc --noEmit",
+    "check:catalog": "tsx tools/check-catalog.ts",
+    "check:references": "tsx tools/check-references.ts",
+    "check:references:strict": "tsx tools/check-references.ts --strict",
+    "generate:all-supported": "tsx tools/all-supported.ts --write",
+    "check:all-supported": "tsx tools/all-supported.ts"
+  },
+  "devDependencies": {
+    "@types/node": "22.14.0",
+    "tsx": "4.19.2",
+    "typescript": "5.7.2",
+    "vite": "6.1.0",
+    "@playwright/test": "1.61.1"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

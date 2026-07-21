@@ -1,0 +1,177 @@
+/// <reference lib="webworker" />
+import { validRequest, type Viewport, type WorkerMessage } from "../browser/protocol.js";
+import { decodeGraphDocument, save } from "../core/document.js";
+import { commandId, linkId } from "../core/types.js";
+import { createEngine, load, snapshot, transition, type GraphEngineState } from "../engine/engine.js";
+import { layoutGraph } from "../layout/layout-graph.js";
+import { IndexedLayoutStore } from "../layout/indexed-layout-store.js";
+import { viewToWorld } from "../layout/geometry.js";
+import type { LayoutSnapshot } from "../layout/types.js";
+import { renderCanvas } from "../render/canvas-renderer.js";
+import { BLENDER_DARK_THEME } from "../render/theme.js";
+import { RenderScheduler } from "./render-scheduler.js";
+import { createSession } from "./session.js";
+import { cycleEnum, scrubValue } from "./control-edit.js";
+import { boxNodes, clampResize, compatibleTargets, frameDropCandidate, groupRoots, hitTest, planLink, zoomAt } from "./interaction.js";
+import { addRampMidpoint, addRampStop, distributeColorRamp, flipColorRamp, isColorRamp, moveRampStop, removeRampStop, setRampColor, type ColorRamp } from "../catalog/color-ramp.js";
+import { appendKnifePoint, crossedLinks } from "./knife-path.js";
+import { getDescriptor } from "../catalog/registry.js";
+
+const scope = self as unknown as DedicatedWorkerGlobalScope;
+const session = createSession();
+let state: GraphEngineState | undefined;
+let viewport: Viewport = { width: 1, height: 1, dpr: 1 };
+let canvas: OffscreenCanvas | undefined;
+let context: OffscreenCanvasRenderingContext2D | null = null;
+let currentLayout: LayoutSnapshot | undefined;
+let gestureLayout:LayoutSnapshot|undefined;
+let layoutStore:IndexedLayoutStore|undefined;
+const post = (message: WorkerMessage, transfer: Transferable[] = []): void => scope.postMessage(message, transfer);
+
+const scheduler = new RenderScheduler((frameId,renderId) => {
+  if (!state || !canvas || !context) return;
+  const deviceWidth=Math.max(1,Math.round(viewport.width*viewport.dpr)),deviceHeight=Math.max(1,Math.round(viewport.height*viewport.dpr));if(canvas.width!==deviceWidth)canvas.width=deviceWidth;if(canvas.height!==deviceHeight)canvas.height=deviceHeight;
+  const preview=session.previewPositions.size||session.previewSizes.size||session.previewValues.size;
+  const nodes = preview ? Object.fromEntries(Object.entries(state.document.nodes).map(([id,node]) => {
+    const values=[...session.previewValues].filter(([controlId])=>controlId.startsWith(`${id}:`));
+    let next={...node,...(session.previewPositions.has(node.id)?{position:session.previewPositions.get(node.id)!}:{}),...(session.previewSizes.has(node.id)?{size:session.previewSizes.get(node.id)!}:{})};
+    for(const [controlId,value] of values){const control=currentLayout?.controls.get(controlId);if(control?.source==="parameter"&&next.known)next={...next,parameters:{...next.parameters,[control.key]:value}};else if(control?.source==="socket-default")next={...next,sockets:next.sockets.map(socket=>socket.id===control.key?{...socket,defaultValue:value}:socket)};}
+    return[id,next];
+  })) : state.document.nodes;
+  const transform={ center: session.cameraCenter, zoom: session.zoom, viewport: { x: viewport.width, y: viewport.height }, dpr: viewport.dpr };const layout = nodes === state.document.nodes&&layoutStore ? layoutStore.view(transform) : layoutGraph({ ...state.document, nodes },transform);
+  currentLayout = layout;
+  renderCanvas(context, layout, BLENDER_DARK_THEME, session);
+  const bitmap = canvas.transferToImageBitmap();
+  try { post({ protocol: 1, type: "frame", bitmap, renderId,frameId }, [bitmap]); }
+  catch (error) { bitmap.close(); throw error; }
+});
+function fatal(error: unknown, code = "worker.fatal"): void { post({ protocol: 1, type: "fatal", error: { code, message: error instanceof Error ? error.message : "Worker failure" } }); scope.close(); }
+function commit(result: Extract<ReturnType<typeof transition>, { status: "committed" }>): void {
+  layoutStore?.rebuild(result.state.document);
+  post({ protocol: 1, type: "mutation", envelope: result.mutationEnvelope });
+  post({ protocol: 1, type: "snapshot.event", envelope: result.snapshotEnvelope });
+  scheduler.request();
+}
+function cancelGesture(): void { if(session.box)session.selectedNodes=new Set(session.box.checkpoint);delete session.drag;delete session.scrub;delete session.rampDrag;delete session.modalMove;delete session.box;delete session.linkDrag;delete session.resize;delete session.parentHighlight;delete session.pan;delete session.textEditBuffer;session.previewValues.clear();gestureLayout=undefined;session.previewPositions.clear();session.previewSizes.clear(); }
+function controlCommand(id:string,value?:import("../core/types.js").ParameterValue,reset=false):Parameters<typeof transition>[1]["command"]|undefined{const control=currentLayout?.controls.get(id);if(!control||control.source==="unknown")return;if(control.source==="parameter")return reset?{type:"node.parameter-reset",id:control.nodeId,key:control.key}:{type:"node.parameter",id:control.nodeId,key:control.key,value:value!};return reset?{type:"node.socket-default-reset",id:control.nodeId,socketId:control.key as import("../core/types.js").SocketId}:{type:"node.socket-default",id:control.nodeId,socketId:control.key as import("../core/types.js").SocketId,value:value!};}
+function gestureCommand(command: Parameters<typeof transition>[1]["command"]): void {
+  if (!state) return; const result = transition(state,{commandId:commandId(`gesture-${state.version+1}`),expectedVersion:state.version,source:"gesture",command});
+  if (result.status === "committed") { state=result.state; commit(result); }
+}
+const rampValue=(id:string,layout=currentLayout)=>{const c=layout?.controls.get(id),v=c?.value as {kind?:unknown;value?:unknown};return c&&v?.kind==="json"&&isColorRamp(v.value)?{control:c,ramp:v.value}:undefined;};
+const activeStop=(id:string,ramp:ColorRamp)=>{const node=currentLayout?.controls.get(id)?.nodeId,stored=node&&session.activeRampStopByNode.get(node);return ramp.stops.find(s=>s.id===stored)??ramp.stops[0]!;};
+function commitRamp(id:string,ramp:ColorRamp,active?:string){const c=currentLayout?.controls.get(id);if(!c)return;if(active)session.activeRampStopByNode.set(c.nodeId,active);const command=controlCommand(id,{kind:"json",value:ramp as unknown as import("../core/types.js").JsonValue});if(command)gestureCommand(command);}
+function rampAction(id:string,target:string,position?:number):void{const found=rampValue(id);if(!found)return;let {ramp}=found;const active=activeStop(id,ramp);if(target==="add"){const newId=`stop-${state!.version+1}-${ramp.stops.length}`;ramp=addRampMidpoint(ramp,active.id,newId);commitRamp(id,ramp,newId);return;}if(target==="remove"){const next=removeRampStop(ramp,active.id),survivor=next.stops.reduce((a,b)=>Math.abs(b.position-active.position)<Math.abs(a.position-active.position)?b:a);commitRamp(id,next,survivor.id);return;}if(target==="flip")ramp=flipColorRamp(ramp);else if(target==="distribute")ramp=distributeColorRamp(ramp);else if(target==="mode"){const options=["rgb","hsv","hsl"] as const;ramp={...ramp,colorMode:options[(options.indexOf(ramp.colorMode)+1)%options.length]!};}else if(target==="interpolation"){const options=["linear","ease","constant","cardinal","b-spline"] as const;ramp={...ramp,interpolation:options[(options.indexOf(ramp.interpolation)+1)%options.length]!};}else if(target==="hue"){const options=["near","far","clockwise","counter-clockwise"] as const;ramp={...ramp,hueInterpolation:options[(options.indexOf(ramp.hueInterpolation)+1)%options.length]!};}else if(target==="gradient"&&position!==undefined){const newId=`stop-${state!.version+1}-${ramp.stops.length}`;ramp=addRampStop(ramp,position,newId);commitRamp(id,ramp,newId);return;}commitRamp(id,ramp,active.id);}
+function input(event: Extract<import("../browser/protocol.js").WorkerRequest,{type:"input"}>["event"]): void {
+  if (!state || !currentLayout) return;
+  if(event.kind==="focus"&&event.phase==="blur")delete session.knife;
+  if(event.kind==="key"&&event.phase==="down"&&event.key==="Escape")delete session.knife;
+  if (event.kind === "focus") { if(event.phase==="blur"){cancelGesture();scheduler.request();} return; }
+  if (event.kind === "wheel") { const next=zoomAt(currentLayout.transform,event.position,event.delta.y);session.zoom=next.zoom;session.cameraCenter=next.center;scheduler.request();return; }
+  if (event.kind === "key" && event.phase === "down") {
+    const modifier=(event.modifiers&6)!==0;
+    if(event.key==="Escape"){cancelGesture();scheduler.request();return;}
+    if(event.key==="Backspace"){const id=session.focusedControl??session.hoveredControl;if(id){const rv=rampValue(id);if(rv){const stop=activeStop(id,rv.ramp),target=session.focusedRampTarget;if(target==="swatch"||target==="r"||target==="g"||target==="b"||target==="a")commitRamp(id,setRampColor(rv.ramp,stop.id,[0,0,0,1]),stop.id);else{const command=controlCommand(id,undefined,true);if(command)gestureCommand(command);}return;}if(session.textEditBuffer!==undefined){session.textEditBuffer=session.textEditBuffer.slice(0,-1);scheduler.request();}else{const command=controlCommand(id,undefined,true);if(command)gestureCommand(command);}}return;}
+    if(session.focusedControl&&session.focusedRampTarget){const rv=rampValue(session.focusedControl);if(rv){const stop=activeStop(session.focusedControl,rv.ramp);if(event.key==="Delete"||event.key.toLowerCase()==="x"){rampAction(session.focusedControl,"remove");return;}if(event.key==="ArrowLeft"||event.key==="ArrowRight"){const step=(event.modifiers&8)!==0?.001:.01;commitRamp(session.focusedControl,moveRampStop(rv.ramp,stop.id,stop.position+(event.key==="ArrowRight"?step:-step)),stop.id);return;}return;}}
+    if(session.focusedControl&&(event.key==="ArrowUp"||event.key==="ArrowDown")){const control=currentLayout.controls.get(session.focusedControl);const value=control?.value;if(control?.kind==="enum"&&control.schema?.type==="string"&&control.schema.enum&&value&&typeof value==="object"&&"kind" in value&&value.kind==="string"&&"value" in value&&typeof value.value==="string"){const next=cycleEnum(control.schema.enum,value.value,event.key==="ArrowDown"?1:-1);const command=controlCommand(control.id,{kind:"string",value:next});if(command)gestureCommand(command);}return;}
+    if(session.focusedControl&&session.textEditBuffer!==undefined){if(event.key==="Enter"){const command=controlCommand(session.focusedControl,{kind:"string",value:session.textEditBuffer});delete session.textEditBuffer;if(command)gestureCommand(command);return;}if(event.key.length===1&&!modifier){session.textEditBuffer+=event.key;scheduler.request();return;}}
+    if(modifier&&event.key.toLowerCase()==="z"){gestureCommand({type:(event.modifiers&8)!==0?"redo":"undo"});return;}
+    if(event.key==="Home"){const b=currentLayout.graphBounds;if(b.width||b.height){session.cameraCenter={x:b.x+b.width/2,y:b.y-b.height/2};session.zoom=Math.min(2,Math.max(.1,Math.min(viewport.width/(b.width+80),viewport.height/(b.height+80))));scheduler.request();}return;}
+    const ids=[...session.selectedNodes];
+    if(event.key.toLowerCase()==="g"&&ids.length&&!session.modalMove){const startView=session.pointer??{x:viewport.width/2,y:viewport.height/2},roots=groupRoots(session.selectedNodes,currentLayout);gestureLayout=currentLayout;session.modalMove={startView,startWorld:viewToWorld(startView,currentLayout.transform),origins:new Map(roots.map(id=>[id,state!.document.nodes[id]!.position])),moved:true};return;}
+    if(event.key==="Enter"&&session.modalMove){finishMove();return;}
+    if((event.key==="Delete"||event.key.toLowerCase()==="x")&&ids.length)gestureCommand({type:"batch",commands:ids.map(id=>({type:"node.remove",id}))});
+    else if(event.key.toLowerCase()==="m"&&ids.length){
+      // Muting is only meaningful for nodes which declare a public bypass.
+      // In particular, generators must not acquire a persisted muted flag
+      // merely because they happened to be selected when M was pressed.
+      const supported=ids.filter(id=>{
+        const node=state!.document.nodes[id];
+        return !!node?.known&&!!getDescriptor(node.typeId)?.muteBypass?.length;
+      });
+      if(supported.length)gestureCommand({type:"batch",commands:supported.map(id=>({type:"node.mute",id,value:!state!.document.nodes[id]?.muted}))});
+    }
+    else if(event.key.toLowerCase()==="h"&&ids.length)gestureCommand({type:"batch",commands:ids.map(id=>({type:"node.collapse",id,value:!state!.document.nodes[id]?.collapsed}))});
+    return;
+  }
+  if(event.kind!=="pointer")return;
+  session.pointer=event.position;
+  if(event.phase==="cancel")delete session.knife;
+  if(event.phase==="down"&&event.button===2&&(event.modifiers&2)!==0){cancelGesture();gestureLayout=currentLayout;session.knife={pointerId:event.pointerId,points:[event.position],crossed:new Set(),mode:(event.modifiers&1)!==0?"mute":"remove"};scheduler.request();return;}
+  if(session.knife?.pointerId===event.pointerId){if(event.phase==="move"){session.knife.points=appendKnifePoint(session.knife.points,event.position);session.knife.crossed=crossedLinks(gestureLayout!,session.knife.points,session.knife.mode==="mute");scheduler.request();return;}if(event.phase==="up"){const knife=session.knife;delete session.knife;gestureLayout=undefined;const commands=[...knife.crossed].map(id=>knife.mode==="remove"?({type:"link.remove" as const,id}):({type:"link.mute" as const,id,value:!state!.document.links[id]!.muted}));if(commands.length)gestureCommand({type:"batch",commands});else scheduler.request();return;}}
+  if(event.phase==="down"&&event.button===2){cancelGesture();scheduler.request();return;}
+  if(event.phase==="move"){const hover=hitTest(currentLayout,event.position);if(hover.kind==="control"||hover.kind==="ramp"){session.hoveredControl=hover.id;if(hover.kind==="ramp")session.hoveredRampTarget=hover.target;else delete session.hoveredRampTarget;}else{delete session.hoveredControl;delete session.hoveredRampTarget;delete session.focusedControl;}}
+  if(event.phase==="cancel"){cancelGesture();scheduler.request();return;}
+  if(session.scrub?.pointerId===event.pointerId){
+    if(event.phase==="down"&&event.button===2){cancelGesture();scheduler.request();return;}
+    if(event.phase==="move"){
+      const control=gestureLayout?.controls.get(session.scrub.controlId);
+      const raw=session.scrub.original as {kind?:unknown;value?:unknown};
+      if(control&&raw.kind==="json"&&isColorRamp(raw.value)){const stop=activeStop(control.id,raw.value),delta=(event.position.x-session.scrub.startX)*((event.modifiers&8)!==0?.001:.01);const ramp=session.scrub.component<0?moveRampStop(raw.value,stop.id,stop.position+delta):setRampColor(raw.value,stop.id,stop.color.map((c,i)=>i===session.scrub!.component?c+delta:c) as unknown as readonly[number,number,number,number]);session.previewValues.set(control.id,{kind:"json",value:ramp as unknown as import("../core/types.js").JsonValue});scheduler.request();}
+      else if(control){const value=scrubValue(control,session.scrub.original,session.scrub.component,event.position.x-session.scrub.startX,(event.modifiers&8)!==0,(event.modifiers&2)!==0);session.previewValues.set(control.id,value);scheduler.request();}
+    }else{
+      const id=session.scrub.controlId,value=session.previewValues.get(id);cancelGesture();const command=value?controlCommand(id,value):undefined;if(command)gestureCommand(command);else scheduler.request();
+    }
+    return;
+  }
+  if(session.rampDrag?.pointerId===event.pointerId){if(event.phase==="move"){const found=rampValue(session.rampDrag.controlId,gestureLayout),b=found?.control.rampBounds;if(found&&b){const world=viewToWorld(event.position,gestureLayout!.transform),p=Math.max(0,Math.min(1,(world.x-b.handles.x)/b.handles.width));session.previewValues.set(found.control.id,{kind:"json",value:moveRampStop(found.ramp,session.rampDrag.stopId,p) as unknown as import("../core/types.js").JsonValue});scheduler.request();}}else{const drag=session.rampDrag,value=session.previewValues.get(drag.controlId) as {kind?:unknown;value?:unknown}|undefined;cancelGesture();if(value?.kind==="json"&&isColorRamp(value.value))commitRamp(drag.controlId,value.value,drag.stopId);else scheduler.request();}return;}
+  if(event.phase==="down"&&event.button===1){session.pan={pointerId:event.pointerId,last:event.position};return;}
+  if(session.pan?.pointerId===event.pointerId){if(event.phase==="move"){session.cameraCenter={x:session.cameraCenter.x-(event.position.x-session.pan.last.x)/session.zoom,y:session.cameraCenter.y+(event.position.y-session.pan.last.y)/session.zoom};session.pan={...session.pan,last:event.position};scheduler.request();}else delete session.pan;return;}
+  if(session.modalMove){if(event.phase==="move"){previewMove(session.modalMove,event.position);return;}if(event.phase==="down"&&event.button===0){finishMove();return;}}
+  if(event.phase==="down"&&event.button===0){const hit=hitTest(currentLayout,event.position,"output");gestureLayout=currentLayout;
+    if(hit.kind==="ramp"){const found=rampValue(hit.id);if(!found)return;session.focusedControl=hit.id;session.focusedRampTarget=hit.target;const active=activeStop(hit.id,found.ramp);if(hit.target==="handle"&&hit.stopId){const same=found.ramp.stops.filter(s=>Math.abs(s.position-(hit.position??s.position))<7/currentLayout!.transform.zoom/found.control.rampBounds!.handles.width);let id=hit.stopId;if(same.length>1){const old=session.activeRampStopByNode.get(found.control.nodeId),i=same.findIndex(s=>s.id===old);id=same[(i+1)%same.length]!.id;}session.activeRampStopByNode.set(found.control.nodeId,id);session.rampDrag={pointerId:event.pointerId,controlId:hit.id,stopId:id,original:found.control.value as import("../core/types.js").ParameterValue};scheduler.request();return;}if(hit.target==="gradient"&&(event.modifiers&2)!==0){rampAction(hit.id,"gradient",hit.position);return;}if(hit.target==="position"||hit.target==="r"||hit.target==="g"||hit.target==="b"||hit.target==="a"){session.scrub={pointerId:event.pointerId,controlId:hit.id,component:hit.target==="position"?-1:["r","g","b","a"].indexOf(hit.target),startX:event.position.x,original:found.control.value as import("../core/types.js").ParameterValue};return;}if(hit.target==="selector"){const i=found.ramp.stops.findIndex(s=>s.id===active.id);session.activeRampStopByNode.set(found.control.nodeId,found.ramp.stops[(i+1)%found.ramp.stops.length]!.id);scheduler.request();return;}if(hit.target!=="gradient"&&hit.target!=="swatch")rampAction(hit.id,hit.target);scheduler.request();return;}
+    if(hit.kind==="control"){const control=currentLayout.controls.get(hit.id);session.focusedControl=hit.id;if(control&&!control.linked&&control.source!=="unknown"){const current=control.value as import("../core/types.js").ParameterValue;if(control.kind==="boolean"&&current.kind==="boolean"){const command=controlCommand(hit.id,{kind:"boolean",value:!current.value});if(command)gestureCommand(command);}else if(control.kind==="enum"&&control.schema?.type==="string"&&control.schema.enum&&current.kind==="string"){const command=controlCommand(hit.id,{kind:"string",value:cycleEnum(control.schema.enum,current.value,1)});if(command)gestureCommand(command);}else if((control.kind==="string"||control.kind==="resource")&&current.kind==="string")session.textEditBuffer=current.value;else if(control.kind==="number"||control.kind==="vector"||control.kind==="color")session.scrub={pointerId:event.pointerId,controlId:hit.id,component:hit.component,startX:event.position.x,original:current};}scheduler.request();return;}
+    if(hit.kind==="socket"){const socket=currentLayout.sockets.get(hit.id);if(socket?.direction==="output")session.linkDrag={pointerId:event.pointerId,from:hit.id,current:event.position};scheduler.request();return;}
+    if(hit.kind==="collapse"){const n=state.document.nodes[hit.id];if(n)gestureCommand({type:"node.collapse",id:hit.id,value:!n.collapsed});return;}
+    if(hit.kind==="resize"){session.resize={pointerId:event.pointerId,id:hit.id};return;}
+    if(hit.kind==="link"){session.selectedNodes.clear();if((event.modifiers&8)===0)session.selectedLinks.clear();session.selectedLinks.add(hit.id);scheduler.request();return;}
+    if(hit.kind==="canvas"){session.box={pointerId:event.pointerId,start:event.position,current:event.position,checkpoint:new Set(session.selectedNodes),add:(event.modifiers&8)!==0};if(!session.box.add)session.selectedNodes.clear();scheduler.request();return;}
+    const id=hit.id;if((event.modifiers&8)!==0){session.selectedNodes.has(id)?session.selectedNodes.delete(id):session.selectedNodes.add(id);}else if(!session.selectedNodes.has(id)){session.selectedNodes.clear();session.selectedNodes.add(id);}session.selectedLinks.clear();session.activeNode=id;const roots=groupRoots(session.selectedNodes,currentLayout);session.drag={pointerId:event.pointerId,startView:event.position,startWorld:viewToWorld(event.position,currentLayout.transform),origins:new Map(roots.map(root=>[root,state!.document.nodes[root]!.position])),moved:false};scheduler.request();return;}
+  if(session.box?.pointerId===event.pointerId){if(event.phase==="move"){session.box.current=event.position;const found=boxNodes(gestureLayout!,session.box.start,event.position);session.selectedNodes=new Set(session.box.add?[...session.box.checkpoint,...found]:found);scheduler.request();}else{delete session.box;gestureLayout=undefined;scheduler.request();}return;}
+  if(session.linkDrag?.pointerId===event.pointerId){if(event.phase==="move"){session.linkDrag.current=event.position;const hit=hitTest(gestureLayout!,event.position,"input");if(hit.kind==="socket"&&compatibleTargets(gestureLayout!,session.linkDrag.from).some(s=>s.id===hit.id))session.linkDrag.candidate=hit.id;else delete session.linkDrag.candidate;scheduler.request();}else{const command=session.linkDrag.candidate?planLink(gestureLayout!,session.linkDrag.from,session.linkDrag.candidate,linkId(`gesture-link-${state.version+1}`)):undefined;cancelGesture();if(command)gestureCommand(command);else scheduler.request();}return;}
+  if(session.resize?.pointerId===event.pointerId){if(event.phase==="move"){const size=clampResize(gestureLayout!,session.resize.id,viewToWorld(event.position,gestureLayout!.transform));if(size)session.previewSizes.set(session.resize.id,size);scheduler.request();}else{const id=session.resize.id,size=session.previewSizes.get(id);cancelGesture();if(size)gestureCommand({type:"node.resize",id,size});else scheduler.request();}return;}
+  if(session.drag?.pointerId===event.pointerId){if(event.phase==="move"){const distance=Math.hypot(event.position.x-session.drag.startView.x,event.position.y-session.drag.startView.y);if(distance>=4)session.drag.moved=true;if(session.drag.moved)previewMove(session.drag,event.position);}else if(event.phase==="up")finishMove();return;}
+}
+
+function previewMove(move:{startWorld:{x:number;y:number};origins:ReadonlyMap<import("../core/types.js").NodeId,{x:number;y:number}>},position:{x:number;y:number}):void{const layout=gestureLayout??currentLayout!;const now=viewToWorld(position,layout.transform);for(const[id,p]of move.origins)session.previewPositions.set(id,{x:p.x+now.x-move.startWorld.x,y:p.y+now.y-move.startWorld.y});const first=[...move.origins][0];if(first){const n=layout.nodes.get(first[0]);const preview=session.previewPositions.get(first[0]);const target=n&&preview?frameDropCandidate(layout,first[0],{x:n.worldPosition.x+preview.x-n.localPosition.x+n.bounds.width/2,y:n.worldPosition.y+preview.y-n.localPosition.y-n.bounds.height/2}):undefined;if(target)session.parentHighlight=target;else delete session.parentHighlight;}scheduler.request();}
+function finishMove():void{const layout=gestureLayout??currentLayout!;const commands:import("../commands/types.js").BatchCommand[]=[...session.previewPositions].map(([id,position])=>({type:"node.move",id,position}));for(const[id]of session.previewPositions){const n=layout.nodes.get(id);if(!n)continue;const target=session.parentHighlight;if((target??undefined)!==(n.parentId??undefined))commands.push({type:"node.parent",id,parentId:target??null});}cancelGesture();if(commands.length)gestureCommand({type:"batch",commands});else scheduler.request();}
+
+scope.onmessage = ({ data }: MessageEvent<unknown>) => {
+  if (!validRequest(data)) {
+    if (typeof data === "object" && data !== null && "protocol" in data && data.protocol === 1 && "type" in data && (data.type === "command" || data.type === "load") && "id" in data && typeof data.id === "string") {
+      post({ protocol: 1, type: "response", id: data.id, ok: false, error: { code: data.type === "command" ? "command.invalid" : "layout.request.invalid", message: `Invalid ${data.type} request` } }); return;
+    }
+    fatal(new Error("Invalid worker protocol message"), "protocol.invalid"); return;
+  }
+  try {
+    if (data.type === "init") {
+      if (typeof OffscreenCanvas === "undefined") { fatal(new Error("OffscreenCanvas is unavailable in this worker"), "offscreen-canvas.missing"); return; }
+      if (typeof ImageBitmap === "undefined" || typeof ImageBitmap.prototype.close !== "function") { fatal(new Error("ImageBitmap.close is unavailable"), "image-bitmap.close.missing"); return; }
+      const decoded = decodeGraphDocument(data.layout);
+      if (!decoded.ok) { post({ protocol: 1, type: "response", id: data.id, ok: false, error: { code: "layout.invalid", message: "Invalid layout", issues: decoded.issues } }); return; }
+      state = createEngine(decoded.value, data.historyLimit);layoutStore=new IndexedLayoutStore(state.document); viewport = data.viewport; canvas = new OffscreenCanvas(1, 1); context = canvas.getContext("2d");
+      if (!context) throw new Error("OffscreenCanvas 2D unavailable");
+      if (typeof canvas.transferToImageBitmap !== "function") { fatal(new Error("OffscreenCanvas.transferToImageBitmap is unavailable"), "offscreen-canvas.transfer.missing"); return; }
+      scheduler.request(1); post({ protocol: 1, type: "response", id: data.id, ok: true, value: snapshot(state) }); return;
+    }
+    if (!state) { fatal(new Error("Worker is not initialized")); return; }
+    if (data.type === "command") {
+      cancelGesture();
+      const result = transition(state, { commandId: commandId(data.id), expectedVersion: data.expected.kind === "current" ? state.version : data.expected.version, source: "api", command: data.command });
+      if (result.status === "rejected") post({ protocol: 1, type: "response", id: data.id, ok: false, error: result.error });
+      else { if (result.status === "committed") { state = result.state; commit(result); } post({ protocol: 1, type: "response", id: data.id, ok: true, value: { status: result.status, version: state.version } }); } return;
+    }
+    if (data.type === "load") {
+      cancelGesture();
+      const result = load(state, data.layout, data.expected.kind === "current" ? state.version : data.expected.version, commandId(data.id));
+      if (!result.ok) post({ protocol: 1, type: "response", id: data.id, ok: false, error: { code: result.issues[0]?.code ?? "layout.invalid", message: result.issues[0]?.message ?? "Invalid layout", issues: result.issues } });
+      else { state = result.state;layoutStore?.rebuild(state.document); post({ protocol: 1, type: "mutation", envelope: result.mutationEnvelope }); post({ protocol: 1, type: "snapshot.event", envelope: result.snapshotEnvelope }); scheduler.request(); post({ protocol: 1, type: "response", id: data.id, ok: true, value: { status: "committed", version: state.version } }); } return;
+    }
+    if (data.type === "snapshot") { post({ protocol: 1, type: "response", id: data.id, ok: true, value: snapshot(state) }); return; }
+    if (data.type === "save") { post({ protocol: 1, type: "response", id: data.id, ok: true, value: save(state.document) }); return; }
+    if (data.type === "viewport") { viewport = data.viewport; scheduler.request(data.renderId); return; }
+    if (data.type === "frame.consumed") { scheduler.consumed(data.frameId); return; }
+    if (data.type === "dispose") scope.close();
+    if (data.type === "input") input(data.event);
+  } catch (error) { fatal(error); }
+};
