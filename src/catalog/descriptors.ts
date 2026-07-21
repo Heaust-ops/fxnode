@@ -7,6 +7,7 @@ const num=(d:number,minimum?:number,maximum?:number,integer=false):Extract<Value
 const en=(d:string,values:readonly string[]):ValueSchema=>({type:"string",default:s(d),enum:values});
 const input=(key:string,label:string,type:SocketDataType,value?:ValueSchema,max=1,visibleWhen?:SocketDescriptor["visibleWhen"]):SocketDescriptor=>({key,label,direction:"input",dataType:type,accepts:type==="any"?["any"]:[type,"any"],maxIncomingLinks:max,visible:true,...(value?{value}:{}),...(visibleWhen?{visibleWhen}:{})});
 const output=(key:string,label:string,type:SocketDataType):SocketDescriptor=>({key,label,direction:"output",dataType:type,accepts:[],maxIncomingLinks:0,visible:true});
+const hiddenValue=(socket:SocketDescriptor):SocketDescriptor=>({...socket,hideValue:true});
 function d(typeId:BuiltinNodeTypeId,label:string,sockets:readonly SocketDescriptor[],parameters:Readonly<Record<string,ValueSchema>>={},width=140,role?:NodeDescriptor["role"],muteBypass?:readonly (readonly [string,string])[]):NodeDescriptor{const family=typeId.split(".")[1] as CatalogDomain;return{typeId,version:typeId==="fxnode.shader.color-ramp"||typeId==="fxnode.shader.noise-texture"?2:1,family,role:role??(typeId.endsWith("frame")?"container":typeId.includes("output")?"output":typeId.includes("input")?"input":"operator"),label,defaultWidth:typeId.endsWith("frame")?300:width,sockets,parameters,...(muteBypass?{muteBypass}:{})};}
 const color={type:"color",default:c(.8,.8,.8,1),minimum:0,maximum:1} as const;
 const vector={type:"vector",default:v(0)} as const;
@@ -23,7 +24,7 @@ export const BUILTIN_DESCRIPTORS=[
  {...d("fxnode.shader.color-ramp","Color Ramp",[input("factor","Factor","float",num(.5,0,1)),output("color","Color","color"),output("alpha","Alpha","float")],{ramp:{type:"color-ramp",default:{kind:"json",value:DEFAULT_COLOR_RAMP as unknown as JsonValue}}},320),ui:[{kind:"socket",key:"color"},{kind:"socket",key:"alpha"},{kind:"parameter",key:"ramp",label:""},{kind:"socket",key:"factor"}]},
  d("fxnode.shader.texture-coordinate","Texture Coordinate",[output("generated","Generated","vector"),output("normal","Normal","vector"),output("uv","UV","vector"),output("object","Object","vector")],{},190),
  {...d("fxnode.shader.noise-texture","Noise Texture",[
-   input("vector","Vector","vector",vector,1,{parameter:"dimensions",in:["2d","3d","4d"]}),
+   hiddenValue(input("vector","Vector","vector",vector,1,{parameter:"dimensions",in:["2d","3d","4d"]})),
    input("w","W","float",num(0),1,{parameter:"dimensions",in:["1d","4d"]}),
    input("scale","Scale","float",num(5,-1000,1000)), input("detail","Detail","float",num(2,0,15)),
    input("roughness","Roughness","float",num(.5,0,1)), input("lacunarity","Lacunarity","float",num(2,0,1000)),
@@ -35,11 +36,11 @@ export const BUILTIN_DESCRIPTORS=[
    {kind:"socket",key:"vector"},{kind:"socket",key:"w"},{kind:"socket",key:"scale"},{kind:"socket",key:"detail"},{kind:"socket",key:"roughness"},{kind:"socket",key:"lacunarity"},{kind:"socket",key:"offset"},{kind:"socket",key:"gain"},{kind:"socket",key:"distortion"},{kind:"socket",key:"factor"},{kind:"socket",key:"color"}
  ]},
  {...d("fxnode.shader.image-texture","Image Texture",[
-   input("vector","Vector","vector",vector),output("color","Color","color"),output("alpha","Alpha","float")
+   hiddenValue(input("vector","Vector","vector",vector)),output("color","Color","color"),output("alpha","Alpha","float")
  ],{image:{type:"string",default:s("")},interpolation:en("Linear",["Linear","Closest","Cubic","Smart"]),projection:en("Flat",["Flat","Box","Sphere","Tube"]),blend:num(0,0,1),extension:en("Repeat",["Repeat","Extend","Clip","Mirror"]),colorSpace:en("sRGB",["sRGB","Linear","Non-Color"]),alphaMode:en("Straight",["Straight","Premultiplied","Channel Packed","None"])},280,"input"),ui:[
    {kind:"resource",key:"image",label:"Image",openLabel:"Open",newLabel:"New"},{kind:"parameter",key:"interpolation"},{kind:"parameter",key:"projection"},{kind:"parameter",key:"blend",label:"Blend",visibleWhen:{parameter:"projection",equals:"Box"}},{kind:"parameter",key:"extension"},{kind:"parameter",key:"colorSpace",label:"Color Space"},{kind:"parameter",key:"alphaMode",label:"Alpha Mode"},{kind:"socket",key:"vector"},{kind:"socket",key:"color"},{kind:"socket",key:"alpha"}
  ]},
- d("fxnode.shader.principled-bsdf","Principled BSDF",[input("base-color","Base Color","color",color),input("metallic","Metallic","float",num(0,0,1)),input("roughness","Roughness","float",num(.5,0,1)),input("ior","IOR","float",num(1.5,1,1000)),input("alpha","Alpha","float",num(1,0,1)),input("normal","Normal","vector",vector),output("bsdf","BSDF","shader")],{},220),
+ d("fxnode.shader.principled-bsdf","Principled BSDF",[input("base-color","Base Color","color",color),input("metallic","Metallic","float",num(0,0,1)),input("roughness","Roughness","float",num(.5,0,1)),input("ior","IOR","float",num(1.5,1,1000)),input("alpha","Alpha","float",num(1,0,1)),hiddenValue(input("normal","Normal","vector",vector)),output("bsdf","BSDF","shader")],{},220),
  d("fxnode.shader.material-output","Material Output",[input("surface","Surface","shader"),input("volume","Volume","shader"),input("displacement","Displacement","vector",vector)],{},190),
  d("fxnode.geometry.position","Position",[output("position","Position","vector")]),
  d("fxnode.geometry.mesh-cube","Mesh Cube",[input("size","Size","vector",{type:"vector",default:v(1),minimum:0}),input("vertices-x","Vertices X","float",num(2,2,1000,true)),input("vertices-y","Vertices Y","float",num(2,2,1000,true)),input("vertices-z","Vertices Z","float",num(2,2,1000,true)),output("mesh","Mesh","geometry")],{},190),

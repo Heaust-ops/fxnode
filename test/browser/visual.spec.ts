@@ -52,5 +52,5 @@ test("@visual distant zoom keeps text inside scaled nodes",async({page})=>{
 });
 
 test("@visual Blender-style numeric fields and text editing",async({page})=>{
-  await page.goto("/example/control-test/");await page.evaluate(()=>window.controlTest.ready);const canvas=page.locator("#controls");await expect(canvas).toHaveScreenshot("numeric-fields.png",{animations:"disabled"});await canvas.click({position:{x:196,y:147}});await expect(canvas).toHaveScreenshot("numeric-editing.png",{animations:"disabled"});
+  await page.goto("/example/control-test/");await page.evaluate(()=>window.controlTest.ready);const canvas=page.locator("#controls");await expect(canvas).toHaveScreenshot("numeric-fields.png",{animations:"disabled"});await canvas.click({position:{x:196,y:147}});await expect(canvas).toHaveScreenshot("numeric-editing.png",{animations:"disabled"});await canvas.press("Escape");await canvas.click({position:{x:1003,y:147}});await expect(canvas).toHaveScreenshot("color-picker.png",{animations:"disabled"});
 });

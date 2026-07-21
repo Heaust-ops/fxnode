@@ -17,6 +17,8 @@ export interface SocketDescriptor {
   readonly maxIncomingLinks: number;
   /** Schema and initial value for an editable input. Not persisted verbatim. */
   readonly value?: ValueSchema;
+  /** Blender sockets such as Normal/Vector expose links but no inline default editor. */
+  readonly hideValue?: boolean;
   readonly visible: boolean;
   readonly visibleWhen?: VisibilityExpression;
 }

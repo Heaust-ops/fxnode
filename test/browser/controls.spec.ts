@@ -11,7 +11,7 @@ const CONTROL_COORDS = Object.freeze({
   mathOperation: { x: 473, y: 147 }, mathClamp: { x: 473, y: 171 },
   mathA: { x: 473, y: 195 }, mathB: { x: 473, y: 219 },
   vectorOperation: { x: 853, y: 147 }, vectorAX: { x: 792, y: 171 }, vectorAY: { x: 853, y: 171 },
-  colorR: { x: 1120, y: 147 }, colorG: { x: 1181, y: 147 },
+  colorSwatch: { x: 1003, y: 147 },
   groupString: { x: 623, y: 456 },
 } satisfies Record<string, Point>);
 
@@ -63,10 +63,13 @@ test("numeric fields support typed assignment, cancellation, clamping and step a
   await canvas.click({position:{x:115,y:147}});const decremented=await state(p);invariant(stepped,decremented,1);expect(value(decremented.layout,"value","value")).toEqual({kind:"number",value:999});
 });
 
-test("vector and color component scrubs commit only selected components", async ({ page }) => {
+test("vector component scrubs commit only the selected component", async ({ page }) => {
   const p = await open(page), a = await state(p), r1 = await scrub(p, CONTROL_COORDS.vectorAY, 20); await r1(); const b = await state(p); invariant(a, b, 1);
   expect(socketValue(b.layout, "vector", "vector:a")).toEqual({ kind: "vector", value: [0, 2, 0] });
-  const r2 = await scrub(p, CONTROL_COORDS.colorG, -2); await r2(); const c = await state(p); invariant(b, c, 1); const changed = (value(c.layout, "color", "color") as { value: number[] }).value; expect(changed[0]).toBe(.8); expect(changed[1]).toBeCloseTo(.6); expect(changed.slice(2)).toEqual([.8, 1]);
+});
+
+test("color swatch opens an Oklch picker with transient atomic editing",async({page})=>{
+  const p=await open(page),canvas=p.locator("#controls"),before=await state(p);await canvas.click({position:CONTROL_COORDS.colorSwatch});const box=await canvas.boundingBox();if(!box)throw new Error("Canvas bounds missing");await page.mouse.move(box.x+805,box.y+245);await page.mouse.down();await page.mouse.move(box.x+850,box.y+245,{steps:4});invariant(before,await state(p),0);await page.mouse.up();const committed=await state(p);invariant(before,committed,1);expect(value(committed.layout,"color","color")).not.toEqual(value(before.layout,"color","color"));await canvas.click({position:CONTROL_COORDS.colorSwatch});await page.mouse.move(box.x+805,box.y+245);await page.mouse.down();await page.mouse.move(box.x+825,box.y+220);await canvas.press("Escape");await page.mouse.up();invariant(committed,await state(p),0);
 });
 
 test("enum and boolean controls emit one mutation/snapshot pair", async ({ page }) => {

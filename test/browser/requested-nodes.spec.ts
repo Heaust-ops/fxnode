@@ -10,7 +10,7 @@ const P = Object.freeze({
   image: { interpolation:{x:312,y:480}, projection:{x:312,y:504}, flatExtension:{x:312,y:528}, boxBlend:{x:312,y:528}, boxExtension:{x:312,y:552} },
   compositor: { resource:{x:464,y:896}, source:{x:464,y:920}, frames:{x:464,y:944}, start:{x:464,y:968}, offset:{x:464,y:992}, cyclic:{x:464,y:1016}, refresh:{x:464,y:1040} },
   noise: { dimensions:{x:653,y:456}, type:{x:653,y:480} },
-  master: { mode:{x:961,y:896}, scalar:{x:738,y:1066}, liftWheel:{x:729,y:990}, whiteTemperature:{x:961,y:944}, eye:{x:860,y:1016} },
+  master: { mode:{x:961,y:896}, scalar:{x:729,y:1048}, liftWheel:{x:729,y:990}, whiteTemperature:{x:961,y:944}, eye:{x:860,y:1016} },
 });
 
 async function open(page: Page) {

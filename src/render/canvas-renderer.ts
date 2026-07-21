@@ -30,6 +30,10 @@ function clippedText(context: OffscreenCanvasRenderingContext2D, text: string, r
   context.restore();
 }
 
+function paintColorSwatch(context:OffscreenCanvasRenderingContext2D,rect:Rect,rgba:readonly number[],zoom:number):void{
+  context.save();context.beginPath();context.roundRect(rect.x,rect.y,rect.width,rect.height,4*zoom);context.clip();const cell=Math.max(3,5*zoom);for(let y=rect.y;y<rect.y+rect.height;y+=cell)for(let x=rect.x;x<rect.x+rect.width;x+=cell){context.fillStyle=(Math.floor((x-rect.x)/cell)+Math.floor((y-rect.y)/cell))%2?"#777":"#aaa";context.fillRect(x,y,cell,cell);}context.fillStyle=`rgba(${(rgba[0]??0)*255},${(rgba[1]??0)*255},${(rgba[2]??0)*255},${rgba[3]??1})`;context.fillRect(rect.x,rect.y,rect.width,rect.height);context.restore();context.beginPath();context.roundRect(rect.x+.5*zoom,rect.y+.5*zoom,Math.max(0,rect.width-zoom),Math.max(0,rect.height-zoom),4*zoom);context.strokeStyle="#111216";context.lineWidth=zoom;context.stroke();
+}
+
 function paintControl(context: OffscreenCanvasRenderingContext2D, control: LayoutControl, rect: Rect, theme: RenderTheme, zoom: number, interaction?: InteractionRenderState): void {
   const viewRect=(bounds:Rect):Rect=>({x:rect.x+(bounds.x-control.bounds.x)*zoom,y:rect.y+(control.bounds.y-bounds.y)*zoom,width:bounds.width*zoom,height:bounds.height*zoom});
   const typedRamp=control.value as {kind?:unknown;value?:unknown};
@@ -42,7 +46,7 @@ function paintControl(context: OffscreenCanvasRenderingContext2D, control: Layou
     context.restore();context.strokeStyle="#111";context.lineWidth=1;context.strokeRect(gradient.x+.5,gradient.y+.5,Math.max(0,gradient.width-1),Math.max(0,gradient.height-1));
     for(const stop of ramp.stops){const sx=gradient.x+stop.position*gradient.width,sy=gradient.y+gradient.height;context.beginPath();context.moveTo(sx,sy);context.lineTo(sx-6*zoom,sy+12*zoom);context.lineTo(sx+6*zoom,sy+12*zoom);context.closePath();context.fillStyle=`rgb(${stop.color[0]*255},${stop.color[1]*255},${stop.color[2]*255})`;context.fill();context.strokeStyle=stop.id===active.id?"#f5a623":"#fff";context.lineWidth=stop.id===active.id?3:2;context.stroke();}
     const detailsY=viewRect(bounds.selector).y,widths=[.25,.35,.40],details=[active.id,`Pos ${active.position.toFixed(3)}`,""];let dx=rect.x;for(let i=0;i<3;i++){const w=rect.width*widths[i]!;const cellRect={x:dx,y:detailsY,width:w-2*zoom,height:20*zoom};context.fillStyle=theme.control;context.fillRect(cellRect.x,cellRect.y,cellRect.width,cellRect.height);context.fillStyle=theme.text;clippedText(context,details[i]!,cellRect,cellRect.x+cellRect.width/2,cellRect.y+cellRect.height/2);dx+=w;}
-    const color=viewRect(bounds.color),cellWidth=color.width/5;for(let i=0;i<5;i++){const cellRect={x:color.x+i*cellWidth,y:color.y,width:cellWidth-1*zoom,height:color.height};context.fillStyle=i===0?`rgba(${active.color[0]*255},${active.color[1]*255},${active.color[2]*255},${active.color[3]})`:theme.control;context.fillRect(cellRect.x,cellRect.y,cellRect.width,cellRect.height);if(i>0){context.fillStyle=theme.text;clippedText(context,`${"RGBA"[i-1]} ${active.color[i-1]!.toFixed(3)}`,cellRect,cellRect.x+cellRect.width/2,cellRect.y+cellRect.height/2);}}
+    const color=viewRect(bounds.color);paintColorSwatch(context,color,active.color,zoom);
     if(interaction?.focusedControl===control.id){context.strokeStyle="#f5a623";context.strokeRect(rect.x,detailsY,rect.width,20*zoom);}context.textAlign="left";return;
   }
   context.beginPath();
@@ -60,6 +64,9 @@ function paintControl(context: OffscreenCanvasRenderingContext2D, control: Layou
     clippedText(context,value === "" ? "▧  Select…   Open   New" : `▧  ${value}   Open`,rect,rect.x + rect.width / 2,rect.y + rect.height / 2,3*zoom);
     context.textAlign = "left";
     return;
+  }
+  if(control.kind==="color"){
+    const value=control.value as Extract<ParameterValue,{kind:"color"}>;paintColorSwatch(context,rect,value.value,zoom);if(interaction?.focusedControl===control.id){context.beginPath();context.roundRect(rect.x+.5*zoom,rect.y+.5*zoom,Math.max(0,rect.width-zoom),Math.max(0,rect.height-zoom),4*zoom);context.strokeStyle="#f5a623";context.stroke();}context.textAlign="left";return;
   }
   const edit=interaction?.controlEdit?.controlId===control.id?interaction.controlEdit:undefined;
   const text = edit?.kind==="string" ? `${edit.buffer}|` : valueText(control.value);

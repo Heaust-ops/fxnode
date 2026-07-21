@@ -11,7 +11,7 @@ const textWidth=(value:string)=>value.length*6.5;
 function minimumControlWidth(schema:ValueSchema|undefined):number{
   if(!schema)return 80;
   if(schema.type==="vector")return 3*58+6;
-  if(schema.type==="color")return 4*58+9;
+  if(schema.type==="color")return 80;
   if(schema.type==="color-ramp")return 300;
   if(schema.type==="string")return Math.max(80,...(schema.enum??[]).map(value=>textWidth(value)+28));
   return 80;
@@ -23,7 +23,7 @@ function minimumNodeWidth(descriptor:ReturnType<typeof getDescriptor>,node:Graph
     const label="label" in item?item.label:item.kind==="parameter"||item.kind==="resource"?title(item.key):item.kind==="socket"?title(item.key):"";
     if(label)width=Math.max(width,(textWidth(label)+18)/.4);
     if(item.kind==="parameter"||item.kind==="resource"){const schema=descriptor.parameters[item.key];width=Math.max(width,schema?.type==="color-ramp"?320:minimumControlWidth(schema)/.53);}
-    else if(item.kind==="socket"){const socket=descriptor.sockets.find(value=>value.key===item.key);if(socket?.value)width=Math.max(width,minimumControlWidth(socket.value)/.53);}
+    else if(item.kind==="socket"){const socket=descriptor.sockets.find(value=>value.key===item.key);if(socket?.value&&!socket.hideValue)width=Math.max(width,minimumControlWidth(socket.value)/.53);}
     else if(item.kind==="grading-wheels")width=Math.max(width,400);
   }
   return Math.min(G.maxWidth,Math.ceil(width));
@@ -35,7 +35,7 @@ function controlKind(schema: ValueSchema | undefined): LayoutControl["kind"] {
   return schema.type;
 }
 function makeSubfields(bounds: Rect, type: ValueSchema["type"] | undefined): readonly LayoutSubfield[] {
-  const labels = type === "vector" ? ["X", "Y", "Z"] as const : type === "color" ? ["R", "G", "B", "A"] as const : [];
+  const labels = type === "vector" ? ["X", "Y", "Z"] as const : [];
   const gutter = 3;
   const width = labels.length ? (bounds.width - gutter * (labels.length - 1)) / labels.length : 0;
   return labels.map((label, index) => ({
@@ -45,9 +45,9 @@ function makeSubfields(bounds: Rect, type: ValueSchema["type"] | undefined): rea
   }));
 }
 function makeNumericFields(bounds: Rect, schema: ValueSchema | undefined, subfields: readonly LayoutSubfield[]): readonly LayoutNumericField[] {
-  const fields = schema?.type === "number" ? [{ index: 0, bounds }] : schema?.type === "vector" || schema?.type === "color" ? subfields : [];
-  const minimum = schema?.type === "number" ? schema.softMin ?? schema.hardMin ?? schema.minimum : schema?.type === "vector" || schema?.type === "color" ? schema.minimum : undefined;
-  const maximum = schema?.type === "number" ? schema.softMax ?? schema.hardMax ?? schema.maximum : schema?.type === "vector" || schema?.type === "color" ? schema.maximum : undefined;
+  const fields = schema?.type === "number" ? [{ index: 0, bounds }] : schema?.type === "vector" ? subfields : [];
+  const minimum = schema?.type === "number" ? schema.softMin ?? schema.hardMin ?? schema.minimum : schema?.type === "vector" ? schema.minimum : undefined;
+  const maximum = schema?.type === "number" ? schema.softMax ?? schema.hardMax ?? schema.maximum : schema?.type === "vector" ? schema.maximum : undefined;
   const range = Number.isFinite(minimum) && Number.isFinite(maximum) && maximum! > minimum! ? { minimum: minimum!, maximum: maximum! } : undefined;
   return fields.map(field => {
     const arrow = Math.min(7, field.bounds.width * .14);
@@ -168,7 +168,7 @@ export function buildLayoutScene(document: GraphDocument): LayoutScene {
         const raw = node.sockets.find(socket => socket.key === item.key);
         const socket = raw && sockets.get(raw.id);
         if (!raw || !socket) continue;
-        const schema = descriptorSockets.get(item.key)?.value;
+        const socketDescriptor=descriptorSockets.get(item.key),schema = socketDescriptor?.hideValue?undefined:socketDescriptor?.value;
         let controlId: string | undefined;
         if (schema && socket.direction === "input") {
           controlId = `${node.id}:socket:${socket.id}`;
