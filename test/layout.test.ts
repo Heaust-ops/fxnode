@@ -32,7 +32,7 @@ test("expanded, collapsed, reroute and links have pinned geometry", () => {
   assert.equal(snapshot.sockets.size, 4);
   assert.equal((snapshot.controls.get("value:parameter:value")?.value as { value: number }).value, 0);
   assert.equal((snapshot.controls.get("math:parameter:operation")?.value as { value: string }).value, "add");
-  assert.ok((snapshot.nodes.get(nodeId("math"))?.bounds.height ?? 0) >= 126);
+  const mathLayout=snapshot.nodes.get(nodeId("math"))!;assert.ok(mathLayout.bounds.height>=126);assert.equal(mathLayout.collapseHitRect.x,mathLayout.bounds.x);assert.equal(mathLayout.collapseHitRect.width,14);assert.deepEqual(hitTest(snapshot,worldToView({x:mathLayout.bounds.x+10,y:mathLayout.bounds.y-12},snapshot.transform)),{kind:"collapse",id:nodeId("math")});assert.deepEqual(hitTest(snapshot,worldToView({x:mathLayout.bounds.x+22,y:mathLayout.bounds.y-12},snapshot.transform)),{kind:"node",id:nodeId("math")});
   assert.equal(snapshot.controls.get("math:socket:math:a")?.linked, true, "linked inputs hide controls");
 });
 
@@ -60,9 +60,9 @@ test("wheel zoom preserves world point and group roots omit selected descendants
 });
 test("transient node order controls overlapping paint and hit order",()=>{
   const a=materializeNode("a","fxnode.shader.value",{x:0,y:0}),b=materializeNode("b","fxnode.shader.value",{x:0,y:0}),doc={schemaVersion:1,graphId:"z",catalogVersion:1,nodes:{a,b},links:{},metadata:{}} as unknown as Parameters<typeof layoutGraph>[0];
-  const original=layoutGraph(doc,{...transform,zoom:1}),raised=applyNodeOrder(original,[nodeId("b"),nodeId("a")]),point=worldToView({x:20,y:-20},raised.transform);
+  const original=layoutGraph(doc,{...transform,zoom:1}),raised=applyNodeOrder(original,[nodeId("b"),nodeId("a")]),point=worldToView({x:40,y:-20},raised.transform);
   assert.deepEqual(raised.drawOrder.slice(-2),[nodeId("b"),nodeId("a")]);assert.deepEqual(hitTest(raised,point),{kind:"node",id:nodeId("a")});
-  const shifted={...b,position:{x:30,y:0}},overlap=applyNodeOrder(layoutGraph({...doc,nodes:{a,b:shifted}},{...transform,zoom:1}),[nodeId("a"),nodeId("b")]);assert.deepEqual(hitTest(overlap,worldToView({x:80,y:-36},overlap.transform)),{kind:"node",id:nodeId("b")});
+  const shifted={...b,position:{x:30,y:0}},overlap=applyNodeOrder(layoutGraph({...doc,nodes:{a,b:shifted}},{...transform,zoom:1}),[nodeId("a"),nodeId("b")]);assert.deepEqual(hitTest(overlap,worldToView({x:35,y:-36},overlap.transform)),{kind:"node",id:nodeId("b")});
 });
 test("reroute core starts links while its outer halo selects the node",()=>{
   const reroute=materializeNode("r","fxnode.common.reroute",{x:0,y:0}),doc={schemaVersion:1,graphId:"reroute",catalogVersion:1,nodes:{r:reroute},links:{},metadata:{}} as unknown as Parameters<typeof layoutGraph>[0],layout=layoutGraph(doc,{...transform,zoom:1}),node=layout.nodes.get(nodeId("r"))!,center=worldToView({x:node.bounds.x+5,y:node.bounds.y-5},layout.transform);
@@ -99,6 +99,11 @@ test("compound and component controls have bounded, disjoint layout cells",()=>{
   }
   const ramp=layout.controls.get("r:parameter:ramp")!,rampRow=layout.nodes.get(nodeId("r"))!.rows.find(row=>row.kind==="control")!;
   for(const row of layout.nodes.get(nodeId("r"))!.rows.filter(row=>row.kind==="socket"))assert.ok(row.bounds.y-row.bounds.height>=rampRow.bounds.y||rampRow.bounds.y-rampRow.bounds.height>=row.bounds.y,"ramp and sockets disjoint");
-  const ordinary=[layout.controls.get("i:parameter:interpolation")!,layout.controls.get("i:parameter:projection")!,layout.controls.get("g:socket:g:factor")!];
-  assert.ok(ordinary.every(control=>control.bounds.height===18));assert.ok(ordinary.every(control=>Math.abs((control.bounds.x-layout.nodes.get(control.nodeId)!.bounds.x)/layout.nodes.get(control.nodeId)!.bounds.width-.42)<1e-9));
+  const ordinary=[layout.controls.get("i:parameter:interpolation")!,layout.controls.get("i:parameter:projection")!],factor=layout.controls.get("g:socket:g:factor")!;
+  assert.ok([...ordinary,factor].every(control=>control.bounds.height===18));assert.ok(ordinary.every(control=>Math.abs((control.bounds.x-layout.nodes.get(control.nodeId)!.bounds.x)/layout.nodes.get(control.nodeId)!.bounds.width-.42)<1e-9));assert.equal(factor.bounds.x-layout.nodes.get(factor.nodeId)!.bounds.x,12);
+});
+
+test("numeric fields expose Blender-style range fill and step geometry",()=>{
+  const principled=materializeNode("p","fxnode.shader.principled-bsdf",{x:0,y:0}),valueNode=materializeNode("v","fxnode.shader.value",{x:500,y:0}),doc={schemaVersion:1,graphId:"numeric-fields",catalogVersion:1,nodes:{p:principled,v:valueNode},links:{},metadata:{}} as unknown as Parameters<typeof layoutGraph>[0],layout=layoutGraph(doc,transform),roughness=layout.controls.get("p:socket:p:roughness")!.numericFields[0]!,unbounded=layout.controls.get("v:parameter:value")!.numericFields[0]!;
+  assert.deepEqual(roughness.range,{minimum:0,maximum:1});assert.equal(unbounded.range,undefined);assert.equal(roughness.decrement.width,7);assert.equal(roughness.increment.width,7);assert.ok(roughness.value.x>=roughness.decrement.x+roughness.decrement.width);assert.ok(roughness.increment.x>=roughness.value.x+roughness.value.width);
 });

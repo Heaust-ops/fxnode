@@ -4,8 +4,8 @@ type Point = Readonly<{ x: number; y: number }>;
 type ControlPage = Page & { readonly __controlPageBrand?: never };
 
 // Canvas is 1200x640 and the zoom-1 origin is its center (600,320).
-// Layout rows are 24px high below a 24px header; controls occupy the right
-// 53% of each fixed-width node. These points are centers of those rectangles.
+// Layout rows are 24px high below a 24px header. Scalar numeric fields span
+// nearly the full row; compound and non-numeric controls retain split layout.
 const CONTROL_COORDS = Object.freeze({
   value: { x: 196, y: 147 },
   mathOperation: { x: 473, y: 147 }, mathClamp: { x: 473, y: 171 },
@@ -59,8 +59,8 @@ test("numeric fields support typed assignment, cancellation, clamping and step a
   await canvas.click({position:CONTROL_COORDS.value});await p.keyboard.type("0.375");await p.keyboard.press("Enter");const b=await state(p);invariant(a,b,1);expect(value(b.layout,"value","value")).toEqual({kind:"number",value:.375});
   await canvas.click({position:CONTROL_COORDS.value});await p.keyboard.type("999");await p.keyboard.press("Enter");const clamped=await state(p);invariant(b,clamped,1);expect(value(clamped.layout,"value","value")).toEqual({kind:"number",value:999});
   await canvas.click({position:CONTROL_COORDS.value});await p.keyboard.type("bad");await p.keyboard.press("Enter");invariant(clamped,await state(p),0);await p.keyboard.press("Escape");
-  await canvas.click({position:{x:241,y:147}});const stepped=await state(p);invariant(clamped,stepped,1);expect(value(stepped.layout,"value","value")).toEqual({kind:"number",value:1000});
-  await canvas.click({position:{x:165,y:147}});const decremented=await state(p);invariant(stepped,decremented,1);expect(value(decremented.layout,"value","value")).toEqual({kind:"number",value:999});
+  await canvas.click({position:{x:235,y:147}});const stepped=await state(p);invariant(clamped,stepped,1);expect(value(stepped.layout,"value","value")).toEqual({kind:"number",value:1000});
+  await canvas.click({position:{x:115,y:147}});const decremented=await state(p);invariant(stepped,decremented,1);expect(value(decremented.layout,"value","value")).toEqual({kind:"number",value:999});
 });
 
 test("vector and color component scrubs commit only selected components", async ({ page }) => {

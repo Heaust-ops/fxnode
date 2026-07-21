@@ -39,6 +39,8 @@ export interface LayoutNumericField {
   readonly value: Rect;
   readonly decrement: Rect;
   readonly increment: Rect;
+  /** Preferred display range for Blender-style proportional fill. */
+  readonly range?: { readonly minimum: number; readonly maximum: number };
 }
 export interface LayoutControl {
   readonly id: string;

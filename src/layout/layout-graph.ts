@@ -44,16 +44,20 @@ function makeSubfields(bounds: Rect, type: ValueSchema["type"] | undefined): rea
     bounds: { x: bounds.x + index * (width + gutter), y: bounds.y, width, height: bounds.height },
   }));
 }
-function makeNumericFields(bounds: Rect, type: ValueSchema["type"] | undefined, subfields: readonly LayoutSubfield[]): readonly LayoutNumericField[] {
-  const fields = type === "number" ? [{ index: 0, bounds }] : type === "vector" || type === "color" ? subfields : [];
+function makeNumericFields(bounds: Rect, schema: ValueSchema | undefined, subfields: readonly LayoutSubfield[]): readonly LayoutNumericField[] {
+  const fields = schema?.type === "number" ? [{ index: 0, bounds }] : schema?.type === "vector" || schema?.type === "color" ? subfields : [];
+  const minimum = schema?.type === "number" ? schema.softMin ?? schema.hardMin ?? schema.minimum : schema?.type === "vector" || schema?.type === "color" ? schema.minimum : undefined;
+  const maximum = schema?.type === "number" ? schema.softMax ?? schema.hardMax ?? schema.maximum : schema?.type === "vector" || schema?.type === "color" ? schema.maximum : undefined;
+  const range = Number.isFinite(minimum) && Number.isFinite(maximum) && maximum! > minimum! ? { minimum: minimum!, maximum: maximum! } : undefined;
   return fields.map(field => {
-    const arrow = Math.min(4, field.bounds.width * .15);
+    const arrow = Math.min(7, field.bounds.width * .14);
     return {
       component: field.index,
       bounds: field.bounds,
       decrement: { ...field.bounds, width: arrow },
       value: { ...field.bounds, x: field.bounds.x + arrow, width: Math.max(0, field.bounds.width - arrow * 2) },
       increment: { ...field.bounds, x: field.bounds.x + field.bounds.width - arrow, width: arrow },
+      ...(range ? { range } : {}),
     };
   });
 }
@@ -150,15 +154,15 @@ export function buildLayoutScene(document: GraphDocument): LayoutScene {
       if (item.kind === "parameter" || item.kind === "resource") {
         const schema = descriptor?.parameters[item.key];
         const id = `${node.id}:parameter:${item.key}`;
-        const controlBounds = schema?.type === "color-ramp" ? { x: at.x + 10, y: rowBounds.y - 3, width: width - 20, height: units * G.row - 6 } : { x: at.x + width * .42, y: rowBounds.y - 3, width: width * .53, height: G.row - 6 };
+        const controlBounds = schema?.type === "color-ramp" || schema?.type === "number" ? { x: at.x + 10, y: rowBounds.y - 3, width: width - 20, height: schema.type === "color-ramp" ? units * G.row - 6 : G.row - 6 } : { x: at.x + width * .42, y: rowBounds.y - 3, width: width * .53, height: G.row - 6 };
         const subfields = makeSubfields(controlBounds, schema?.type);
         const rampBounds = schema?.type === "color-ramp" ? {toolbar:{x:controlBounds.x,y:controlBounds.y,width:controlBounds.width,height:20},mode:{x:controlBounds.x,y:controlBounds.y-22,width:controlBounds.width*.3,height:20},interpolation:{x:controlBounds.x+controlBounds.width*.31,y:controlBounds.y-22,width:controlBounds.width*.4,height:20},hue:{x:controlBounds.x+controlBounds.width*.72,y:controlBounds.y-22,width:controlBounds.width*.28,height:20},gradient:{x:controlBounds.x+8,y:controlBounds.y-46,width:controlBounds.width-16,height:28},handles:{x:controlBounds.x+8,y:controlBounds.y-74,width:controlBounds.width-16,height:28},selector:{x:controlBounds.x,y:controlBounds.y-104,width:controlBounds.width*.25,height:20},position:{x:controlBounds.x+controlBounds.width*.27,y:controlBounds.y-104,width:controlBounds.width*.35,height:20},color:{x:controlBounds.x,y:controlBounds.y-126,width:controlBounds.width,height:20}} : undefined;
-        const control: LayoutControl = { id, nodeId: node.id, source: descriptor ? "parameter" : "unknown", key: item.key, label: item.label ?? title(item.key), kind: item.kind === "resource" ? "resource" : controlKind(schema), value: node.parameters[item.key], ...(schema ? { schema } : {}), linked: false, bounds: controlBounds, subfields, numericFields:makeNumericFields(controlBounds,schema?.type,subfields), ...(rampBounds?{rampBounds}:{}) };
+        const control: LayoutControl = { id, nodeId: node.id, source: descriptor ? "parameter" : "unknown", key: item.key, label: item.label ?? title(item.key), kind: item.kind === "resource" ? "resource" : controlKind(schema), value: node.parameters[item.key], ...(schema ? { schema } : {}), linked: false, bounds: controlBounds, subfields, numericFields:makeNumericFields(controlBounds,schema,subfields), ...(rampBounds?{rampBounds}:{}) };
         controls.set(id, control);
         rows.push({ kind: "control", controlId: id, units, bounds: rowBounds });
       } else if (item.kind === "grading-wheels") {
         const gap=10,padding=10,columnWidth=(width-padding*2-gap*2)/3;
-        const wheels=item.wheels.map((wheel,index)=>{const x=at.x+padding+index*(columnWidth+gap),scalarSchema=descriptor?.parameters[wheel.scalar],colorSchema=descriptor?.parameters[wheel.color],scalarId=`${node.id}:parameter:${wheel.scalar}`,colorId=`${node.id}:parameter:${wheel.color}`,labelBounds={x,y:rowBounds.y-4,width:columnWidth,height:18},plane={x:x+2,y:rowBounds.y-25,width:columnWidth-24,height:columnWidth-24},lightness={x:x+columnWidth-18,y:rowBounds.y-25,width:14,height:columnWidth-24},scalarBounds={x:x+2,y:rowBounds.y-25-(columnWidth-24)-10,width:columnWidth-6,height:18},colorBounds={x:plane.x,y:plane.y,width:lightness.x+lightness.width-plane.x,height:plane.height};controls.set(scalarId,{id:scalarId,nodeId:node.id,source:"parameter",key:wheel.scalar,label:wheel.label,kind:controlKind(scalarSchema),value:node.parameters[wheel.scalar],...(scalarSchema?{schema:scalarSchema}:{}),linked:false,bounds:scalarBounds,subfields:[],numericFields:makeNumericFields(scalarBounds,scalarSchema?.type,[])});controls.set(colorId,{id:colorId,nodeId:node.id,source:"parameter",key:wheel.color,label:wheel.label,kind:controlKind(colorSchema),value:node.parameters[wheel.color],...(colorSchema?{schema:colorSchema}:{}),linked:false,bounds:colorBounds,subfields:[],numericFields:[],colorWheelBounds:{plane,lightness}});return{label:wheel.label,labelBounds,scalarControlId:scalarId,colorControlId:colorId};});
+        const wheels=item.wheels.map((wheel,index)=>{const x=at.x+padding+index*(columnWidth+gap),scalarSchema=descriptor?.parameters[wheel.scalar],colorSchema=descriptor?.parameters[wheel.color],scalarId=`${node.id}:parameter:${wheel.scalar}`,colorId=`${node.id}:parameter:${wheel.color}`,labelBounds={x,y:rowBounds.y-4,width:columnWidth,height:18},plane={x:x+2,y:rowBounds.y-25,width:columnWidth-24,height:columnWidth-24},lightness={x:x+columnWidth-18,y:rowBounds.y-25,width:14,height:columnWidth-24},scalarBounds={x:x+2,y:rowBounds.y-25-(columnWidth-24)-10,width:columnWidth-6,height:18},colorBounds={x:plane.x,y:plane.y,width:lightness.x+lightness.width-plane.x,height:plane.height};controls.set(scalarId,{id:scalarId,nodeId:node.id,source:"parameter",key:wheel.scalar,label:wheel.label,kind:controlKind(scalarSchema),value:node.parameters[wheel.scalar],...(scalarSchema?{schema:scalarSchema}:{}),linked:false,bounds:scalarBounds,subfields:[],numericFields:makeNumericFields(scalarBounds,scalarSchema,[])});controls.set(colorId,{id:colorId,nodeId:node.id,source:"parameter",key:wheel.color,label:wheel.label,kind:controlKind(colorSchema),value:node.parameters[wheel.color],...(colorSchema?{schema:colorSchema}:{}),linked:false,bounds:colorBounds,subfields:[],numericFields:[],colorWheelBounds:{plane,lightness}});return{label:wheel.label,labelBounds,scalarControlId:scalarId,colorControlId:colorId};});
         rows.push({kind:"grading-wheels",wheels:wheels as unknown as Extract<LayoutRow,{kind:"grading-wheels"}>["wheels"],units,bounds:rowBounds});
       } else if (item.kind === "socket") {
         const raw = node.sockets.find(socket => socket.key === item.key);
@@ -168,9 +172,9 @@ export function buildLayoutScene(document: GraphDocument): LayoutScene {
         let controlId: string | undefined;
         if (schema && socket.direction === "input") {
           controlId = `${node.id}:socket:${socket.id}`;
-          const controlBounds = { x: at.x + width * .42, y: rowBounds.y - 3, width: width * .53, height: G.row - 6 };
+          const controlBounds = schema.type === "number" ? { x: at.x + 12, y: rowBounds.y - 3, width: width - 24, height: G.row - 6 } : { x: at.x + width * .42, y: rowBounds.y - 3, width: width * .53, height: G.row - 6 };
           const subfields=makeSubfields(controlBounds,schema.type);
-          controls.set(controlId, { id: controlId, nodeId: node.id, source: "socket-default", key: socket.id, label: item.label ?? socket.label, kind: controlKind(schema), value: raw.defaultValue, schema, linked: socket.linked, bounds: controlBounds, subfields, numericFields:makeNumericFields(controlBounds,schema.type,subfields) });
+          controls.set(controlId, { id: controlId, nodeId: node.id, source: "socket-default", key: socket.id, label: item.label ?? socket.label, kind: controlKind(schema), value: raw.defaultValue, schema, linked: socket.linked, bounds: controlBounds, subfields, numericFields:makeNumericFields(controlBounds,schema,subfields) });
         }
         rows.push({ kind: "socket", socketId: socket.id, ...(controlId ? { controlId } : {}), units: 1, bounds: rowBounds });
       }
@@ -180,7 +184,7 @@ export function buildLayoutScene(document: GraphDocument): LayoutScene {
       rows.push({ kind: "socket", socketId: layoutSockets[0].id, units: 1, bounds: nodeBounds });
     }
     const byKey=new Map(node.sockets.map(s=>[s.key,s.id]));const bypasses=node.muted?(descriptor?.muteBypass??[]).flatMap(([a,b])=>{const from=byKey.get(a),to=byKey.get(b),aa=from&&sockets.get(from)?.anchor,bb=to&&sockets.get(to)?.anchor;return aa&&bb?[{from:aa,to:bb}]:[];}):[];
-    nodes.set(node.id, { id: node.id, ...(node.parentId ? { parentId: node.parentId } : {}), typeId: node.typeId, label: node.label, category: category(descriptor), kind, localPosition: node.position, worldPosition: at, authoredSize: node.size, minimumSize, bounds: nodeBounds, header: { x: at.x, y: at.y, width, height: kind === "reroute" ? 0 : G.header }, collapseHitRect: { x: at.x + width - G.header, y: at.y, width: G.header, height: G.header }, resizeHitRect: { x: at.x + width - G.resize, y: at.y - height + G.resize, width: G.resize * 2, height: G.resize * 2 }, collapsed: node.collapsed, muted: node.muted, visible: true, rows, bypasses } satisfies LayoutNode);
+    nodes.set(node.id, { id: node.id, ...(node.parentId ? { parentId: node.parentId } : {}), typeId: node.typeId, label: node.label, category: category(descriptor), kind, localPosition: node.position, worldPosition: at, authoredSize: node.size, minimumSize, bounds: nodeBounds, header: { x: at.x, y: at.y, width, height: kind === "reroute" ? 0 : G.header }, collapseHitRect: { x: at.x, y: at.y, width: 14, height: G.header }, resizeHitRect: { x: at.x + width - G.resize, y: at.y - height + G.resize, width: G.resize * 2, height: G.resize * 2 }, collapsed: node.collapsed, muted: node.muted, visible: true, rows, bypasses } satisfies LayoutNode);
   }
   // Frames are behind all regular nodes. Their authored size is expanded to contain direct children.
   for (const frame of sorted.filter(node => node.typeId === "fxnode.common.frame").sort((a, b) => depths.get(b.id)! - depths.get(a.id)!)) {

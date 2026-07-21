@@ -30,8 +30,8 @@ test("@visual deterministic example canvas", async ({ page }) => {
   expect(second.equals(first)).toBe(true);
   await expect(canvas).toHaveScreenshot("phase-4-example.png", { animations: "disabled" });
 
-  await canvas.click({ position: { x: 320, y: 160 } });
-  await canvas.click({ position: { x: 520, y: 140 }, modifiers: ["Shift"] });
+  await canvas.click({ position: { x: 380, y: 160 } });
+  await canvas.click({ position: { x: 560, y: 140 }, modifiers: ["Shift"] });
   await page.evaluate(() => window.fxnodeExample.api!.whenRendered());
   const selection = await canvas.evaluate(element => {
     const context = (element as HTMLCanvasElement).getContext("2d")!;
@@ -45,4 +45,12 @@ test("@visual deterministic example canvas", async ({ page }) => {
   });
   expect(selection.selected).toBeGreaterThan(100);
   expect(selection.expanded).toBe(0);
+});
+
+test("@visual distant zoom keeps text inside scaled nodes",async({page})=>{
+  await page.goto("/example/");await page.evaluate(()=>window.fxnodeExample.ready);const canvas=page.locator("#graph");await canvas.hover({position:{x:600,y:320}});await page.mouse.wheel(0,900);await page.evaluate(()=>window.fxnodeExample.api!.whenRendered());await expect(canvas).toHaveScreenshot("zoomed-out-lod.png",{animations:"disabled"});
+});
+
+test("@visual Blender-style numeric fields and text editing",async({page})=>{
+  await page.goto("/example/control-test/");await page.evaluate(()=>window.controlTest.ready);const canvas=page.locator("#controls");await expect(canvas).toHaveScreenshot("numeric-fields.png",{animations:"disabled"});await canvas.click({position:{x:196,y:147}});await expect(canvas).toHaveScreenshot("numeric-editing.png",{animations:"disabled"});
 });

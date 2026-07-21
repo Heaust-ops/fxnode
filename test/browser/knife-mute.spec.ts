@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 const MAP = {
   knifeX: 600, parallelTop: 90, parallelBottom: 420,
   chainKnifeX: 430, chainTop: 390, chainBottom: 485,
-  mathAHeader: { x: 800, y: 90 }, transformHeader: { x: 390, y: 560 }, noiseHeader: { x: 800, y: 560 },
+  mathAHeader: { x: 850, y: 90 }, transformHeader: { x: 440, y: 560 }, noiseHeader: { x: 850, y: 560 },
 } as const;
 
 async function open(page: Page) {
