@@ -13,6 +13,8 @@ export interface ViewTransform {
   readonly viewport: Vec2;
   readonly dpr: number;
 }
+/** View-space (+Y down) modal color-picker geometry. */
+export interface ColorPickerLayout { readonly bounds:Rect;readonly plane:Rect;readonly lightness:Rect;readonly alpha:Rect }
 export interface LayoutSocket {
   readonly id: SocketId;
   readonly nodeId: NodeId;
@@ -54,10 +56,12 @@ export interface LayoutControl {
   readonly numericFields: readonly LayoutNumericField[];
   /** Authoritative Color Ramp sub-control geometry, in world coordinates. */
   readonly rampBounds?: { readonly toolbar: Rect; readonly mode: Rect; readonly interpolation: Rect; readonly hue: Rect; readonly gradient: Rect; readonly handles: Rect; readonly selector: Rect; readonly position: Rect; readonly color: Rect };
+  /** Authoritative inline Oklch grading-wheel geometry, in world coordinates. */
+  readonly colorWheelBounds?: {readonly plane:Rect;readonly lightness:Rect};
 }
 export type LayoutRow =
   | { readonly kind: "control"; readonly controlId: string; readonly units: number; readonly bounds: Rect }
-  | { readonly kind: "grading-pair"; readonly label: string; readonly scalarControlId: string; readonly colorControlId: string; readonly units: number; readonly bounds: Rect }
+  | { readonly kind: "grading-wheels"; readonly wheels:readonly [{readonly label:string;readonly labelBounds:Rect;readonly scalarControlId:string;readonly colorControlId:string},{readonly label:string;readonly labelBounds:Rect;readonly scalarControlId:string;readonly colorControlId:string},{readonly label:string;readonly labelBounds:Rect;readonly scalarControlId:string;readonly colorControlId:string}]; readonly units: number; readonly bounds: Rect }
   | { readonly kind: "socket"; readonly socketId: SocketId; readonly controlId?: string; readonly units: number; readonly bounds: Rect }
   | { readonly kind: "header" | "category" | "section" | "panel" | "placeholder"; readonly label: string; readonly units: number; readonly bounds: Rect };
 export interface LayoutNode {
@@ -70,6 +74,8 @@ export interface LayoutNode {
   readonly localPosition: Vec2;
   readonly worldPosition: Vec2;
   readonly authoredSize: Vec2;
+  /** Smallest effective expanded size that can display this node's built-in controls at full scale. */
+  readonly minimumSize: Vec2;
   readonly bounds: Rect;
   readonly header: Rect;
   readonly collapseHitRect: Rect;

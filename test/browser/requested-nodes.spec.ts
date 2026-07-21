@@ -9,8 +9,8 @@ type Saved = Awaited<ReturnType<typeof saved>>;
 const P = Object.freeze({
   image: { interpolation:{x:312,y:480}, projection:{x:312,y:504}, flatExtension:{x:312,y:528}, boxBlend:{x:312,y:528}, boxExtension:{x:312,y:552} },
   compositor: { resource:{x:464,y:896}, source:{x:464,y:920}, frames:{x:464,y:944}, start:{x:464,y:968}, offset:{x:464,y:992}, cyclic:{x:464,y:1016}, refresh:{x:464,y:1040} },
-  noise: { dimensions:{x:557,y:456}, type:{x:557,y:480} },
-  master: { mode:{x:934,y:896}, scalar:{x:812,y:920}, colorR:{x:866,y:920}, whiteTemperature:{x:934,y:944}, eye:{x:860,y:1016} },
+  noise: { dimensions:{x:653,y:456}, type:{x:653,y:480} },
+  master: { mode:{x:961,y:896}, scalar:{x:738,y:1066}, liftWheel:{x:729,y:990}, whiteTemperature:{x:961,y:944}, eye:{x:860,y:1016} },
 });
 
 async function open(page: Page) {
@@ -64,18 +64,18 @@ test("Noise dimensions/types use conditional hit rows and preserve hidden values
   // 3D -> 4D -> 1D, then 1D -> 2D -> 3D -> 4D (actual enum events).
   await canvas.click({position:P.noise.dimensions});await canvas.click({position:P.noise.dimensions});let one=await saved(page);paired(prior,one,2);expect(parameter(one,"noise-3d","dimensions")).toEqual({kind:"string",value:"1d"});expect(await pixels(page,410,410,220,380)).not.toBe(hash);
   // W is the first socket row in 1D (y=528).
-  await scrub(page,{x:557,y:528});const wEdited=await saved(page);expect((node(wEdited,"noise-3d").sockets.find(s=>s.key==="w")!.defaultValue as {value:number}).value).toBeGreaterThan(0);
+  await scrub(page,{x:653,y:528});const wEdited=await saved(page);expect((node(wEdited,"noise-3d").sockets.find(s=>s.key==="w")!.defaultValue as {value:number}).value).toBeGreaterThan(0);
   for(let i=0;i<3;i++)await canvas.click({position:P.noise.dimensions});let four=await saved(page);expect(parameter(four,"noise-3d","dimensions")).toEqual({kind:"string",value:"4d"});
   await canvas.click({position:P.noise.type});await canvas.click({position:P.noise.type});let hybrid=await saved(page);expect(parameter(hybrid,"noise-3d","noiseType")).toEqual({kind:"string",value:"hybrid-multifractal"});
   // In 4D hybrid: vector,w,scale,detail,roughness,lacunarity,offset,gain.
-  await scrub(page,{x:557,y:648});await scrub(page,{x:557,y:672});const conditional=await saved(page);for(const key of ["offset","gain"])expect((node(conditional,"noise-3d").sockets.find(s=>s.key===key)!.defaultValue as {value:number}).value).toBeGreaterThan(0);
+  await scrub(page,{x:653,y:648});await scrub(page,{x:653,y:672});const conditional=await saved(page);for(const key of ["offset","gain"])expect((node(conditional,"noise-3d").sockets.find(s=>s.key===key)!.defaultValue as {value:number}).value).toBeGreaterThan(0);
   await canvas.click({position:P.noise.type});expect(parameter(await saved(page),"noise-3d","noiseType")).toEqual({kind:"string",value:"ridged-multifractal"});await canvas.click({position:P.noise.type});const hetero=await saved(page);expect(parameter(hetero,"noise-3d","noiseType")).toEqual({kind:"string",value:"hetero-terrain"});expect(node(hetero,"noise-3d").sockets.find(s=>s.key==="gain")!.defaultValue).toEqual(node(conditional,"noise-3d").sockets.find(s=>s.key==="gain")!.defaultValue);
   expect(parameter(hetero,"noise-3d","normalize")).toEqual({kind:"boolean",value:false});await canvas.hover({position:P.noise.type});await canvas.press("Backspace");await page.evaluate(()=>window.parityExample!.whenRendered());await canvas.hover({position:{x:10,y:10}});await canvas.hover({position:P.noise.dimensions});await canvas.press("Backspace");const reset=await saved(page);expect(parameter(reset,"noise-3d","noiseType")).toEqual({kind:"string",value:"fbm"});expect(parameter(reset,"noise-3d","dimensions")).toEqual({kind:"string",value:"3d"});
 });
 
 test("Master Color Grading modes edit, persist, load and undo",async({page})=>{
   const canvas=await open(page),initial=await saved(page);expect(node(initial,"master").label).toBe("Master Color Grading");const lgg=await pixels(page,650,850,420,350);
-  await scrub(page,P.master.scalar);await scrub(page,P.master.colorR,-10);const lift=await saved(page);expect((parameter(lift,"master","lift") as {value:number}).value).toBeGreaterThan(0);
+  await scrub(page,P.master.scalar);const box=await canvas.boundingBox();if(!box)throw Error("canvas bounds missing");await page.mouse.move(box.x+P.master.liftWheel.x,box.y+P.master.liftWheel.y);await page.mouse.down();await page.mouse.move(box.x+P.master.liftWheel.x+25,box.y+P.master.liftWheel.y,{steps:4});paired(initial,await saved(page),1);await page.mouse.up();const lift=await saved(page);paired(initial,lift,2);expect((parameter(lift,"master","lift") as {value:number}).value).toBeGreaterThan(0);expect(parameter(lift,"master","liftColor")).not.toEqual(parameter(initial,"master","liftColor"));
   await canvas.click({position:P.master.mode});let ops=await saved(page);expect(parameter(ops,"master","mode")).toEqual({kind:"string",value:"Offset/Power/Slope"});expect(await pixels(page,650,850,420,350)).not.toBe(lgg);await scrub(page,P.master.scalar);ops=await saved(page);expect((parameter(ops,"master","offset") as {value:number}).value).toBeGreaterThan(0);expect(parameter(ops,"master","lift")).toEqual(parameter(lift,"master","lift"));
   await canvas.click({position:P.master.mode});let white=await saved(page);expect(parameter(white,"master","mode")).toEqual({kind:"string",value:"White Point"});await scrub(page,P.master.whiteTemperature);white=await saved(page);expect((parameter(white,"master","inputTemperature") as {value:number}).value).toBeGreaterThan(6500);const beforeEye=white.snapshot.version;await canvas.click({position:P.master.eye});expect((await saved(page)).snapshot.version).toBe(beforeEye);
   const persisted=await page.evaluate(async()=>{const x=await window.parityExample!.save();await window.parityExample!.load(x);return window.parityExample!.save()});expect(persisted.nodes.find(n=>n.id==="master")!.label).toBe("Master Color Grading");expect(persisted.nodes.find(n=>n.id==="master")!.parameters).toEqual(node(white,"master").parameters);

@@ -4,6 +4,8 @@ import type { LinkId, NodeId, ParameterValue, SocketId } from "../core/types.js"
 import type { LayoutControl, LayoutSnapshot, LayoutSocket, Rect, ViewTransform } from "../layout/types.js";
 import type { RenderTheme } from "./theme.js";
 import { isColorRamp, sampleColorRamp } from "../catalog/color-ramp.js";
+import { oklabToOklch, srgbToOklab } from "../color/oklab.js";
+import { paintOklchWheel } from "./color-picker-renderer.js";
 
 export interface InteractionRenderState { readonly knife?:{points:readonly {x:number;y:number}[];crossed:ReadonlySet<LinkId>;mode:"remove"|"mute"} }
 export interface InteractionRenderState { readonly selectedNodes: ReadonlySet<NodeId>; readonly selectedLinks?:ReadonlySet<LinkId>; readonly activeNode?: NodeId; readonly hoverNode?: NodeId; readonly focusedControl?: string; readonly hoveredControl?:string;readonly focusedRampTarget?:string;readonly hoveredRampTarget?:string;readonly activeRampStopByNode?:ReadonlyMap<NodeId,string>;readonly collapseAnimations?:ReadonlyMap<NodeId,{readonly value:number}>; readonly controlEdit?:{readonly kind:"string";readonly controlId:string;readonly buffer:string}|{readonly kind:"number";readonly controlId:string;readonly component:number;readonly buffer:string}; readonly box?:{start:{x:number;y:number};current:{x:number;y:number}};readonly linkDrag?:{from:SocketId;current:{x:number;y:number};candidate?:SocketId};readonly parentHighlight?:NodeId }
@@ -24,7 +26,7 @@ function clippedText(context: OffscreenCanvasRenderingContext2D, text: string, r
   context.beginPath();
   context.rect(rect.x + padding, rect.y, Math.max(0, rect.width - padding * 2), rect.height);
   context.clip();
-  context.fillText(text, x, y, Math.max(0, rect.width - padding * 2));
+  context.fillText(text, x, y);
   context.restore();
 }
 
@@ -39,7 +41,9 @@ function paintControl(context: OffscreenCanvasRenderingContext2D, control: Layou
     const steps=Math.max(2,Math.ceil(gradient.width));for(let i=0;i<steps;i++){const c=sampleColorRamp(ramp,i/(steps-1));context.fillStyle=`rgba(${c[0]*255},${c[1]*255},${c[2]*255},${c[3]})`;context.fillRect(gradient.x+i*gradient.width/steps,gradient.y,gradient.width/steps+1,gradient.height);}
     context.restore();context.strokeStyle="#111";context.lineWidth=1;context.strokeRect(gradient.x+.5,gradient.y+.5,Math.max(0,gradient.width-1),Math.max(0,gradient.height-1));
     for(const stop of ramp.stops){const sx=gradient.x+stop.position*gradient.width,sy=gradient.y+gradient.height;context.beginPath();context.moveTo(sx,sy);context.lineTo(sx-6*zoom,sy+12*zoom);context.lineTo(sx+6*zoom,sy+12*zoom);context.closePath();context.fillStyle=`rgb(${stop.color[0]*255},${stop.color[1]*255},${stop.color[2]*255})`;context.fill();context.strokeStyle=stop.id===active.id?"#f5a623":"#fff";context.lineWidth=stop.id===active.id?3:2;context.stroke();}
-    const detailsY=viewRect(bounds.selector).y,widths=[.25,.35,.40],details=[active.id,`Pos ${active.position.toFixed(3)}`,active.color.map((c,i)=>`${"RGBA"[i]} ${c.toFixed(3)}`).join(" ")];let dx=rect.x;for(let i=0;i<3;i++){const w=rect.width*widths[i]!;const cellRect={x:dx,y:detailsY,width:w-2*zoom,height:20*zoom};context.fillStyle=theme.control;context.fillRect(cellRect.x,cellRect.y,cellRect.width,cellRect.height);context.fillStyle=theme.text;clippedText(context,details[i]!,cellRect,cellRect.x+cellRect.width/2,cellRect.y+cellRect.height/2);dx+=w;}if(interaction?.focusedControl===control.id){context.strokeStyle="#f5a623";context.strokeRect(rect.x,detailsY,rect.width,20*zoom);}context.textAlign="left";return;
+    const detailsY=viewRect(bounds.selector).y,widths=[.25,.35,.40],details=[active.id,`Pos ${active.position.toFixed(3)}`,""];let dx=rect.x;for(let i=0;i<3;i++){const w=rect.width*widths[i]!;const cellRect={x:dx,y:detailsY,width:w-2*zoom,height:20*zoom};context.fillStyle=theme.control;context.fillRect(cellRect.x,cellRect.y,cellRect.width,cellRect.height);context.fillStyle=theme.text;clippedText(context,details[i]!,cellRect,cellRect.x+cellRect.width/2,cellRect.y+cellRect.height/2);dx+=w;}
+    const color=viewRect(bounds.color),cellWidth=color.width/5;for(let i=0;i<5;i++){const cellRect={x:color.x+i*cellWidth,y:color.y,width:cellWidth-1*zoom,height:color.height};context.fillStyle=i===0?`rgba(${active.color[0]*255},${active.color[1]*255},${active.color[2]*255},${active.color[3]})`:theme.control;context.fillRect(cellRect.x,cellRect.y,cellRect.width,cellRect.height);if(i>0){context.fillStyle=theme.text;clippedText(context,`${"RGBA"[i-1]} ${active.color[i-1]!.toFixed(3)}`,cellRect,cellRect.x+cellRect.width/2,cellRect.y+cellRect.height/2);}}
+    if(interaction?.focusedControl===control.id){context.strokeStyle="#f5a623";context.strokeRect(rect.x,detailsY,rect.width,20*zoom);}context.textAlign="left";return;
   }
   context.beginPath();
   context.roundRect(rect.x, rect.y, rect.width, rect.height, 4 * zoom);
@@ -61,15 +65,14 @@ function paintControl(context: OffscreenCanvasRenderingContext2D, control: Layou
   const text = edit?.kind==="string" ? `${edit.buffer}|` : valueText(control.value);
   if(control.numericFields.length){
     const typed=control.value as Extract<ParameterValue,{kind:"number"|"vector"|"color"}>;
-    const font=context.font;for(const field of control.numericFields){const fieldRect=viewRect(field.bounds),valueRect=viewRect(field.value),decrement=viewRect(field.decrement),increment=viewRect(field.increment);context.beginPath();context.roundRect(fieldRect.x,fieldRect.y,fieldRect.width,fieldRect.height,3*zoom);context.fillStyle=control.linked?theme.body:theme.control;context.fill();const component=typed.kind==="number"?typed.value:typed.value[field.component]??0,subfield=control.subfields.find(item=>item.index===field.component),full=`${subfield?.label??""}${subfield?" ":""}${component.toFixed(3)}`,compact=component.toFixed(3),editing=edit?.kind==="number"&&edit.component===field.component;context.font=`${Math.max(7,Math.min(11*zoom,valueRect.width/Math.max(1,compact.length*.52)))}px sans-serif`;const label=editing?`${edit.buffer}|`:context.measureText(full).width<=valueRect.width-2*zoom?full:compact;context.fillStyle=theme.muted;for(const[button,direction]of[[decrement,-1],[increment,1]] as const){const cx=button.x+button.width/2,cy=button.y+button.height/2,size=Math.min(2.5*zoom,button.width*.36);context.beginPath();context.moveTo(cx+direction*size,cy);context.lineTo(cx-direction*size,cy-size);context.lineTo(cx-direction*size,cy+size);context.closePath();context.fill();}context.fillStyle=theme.text;clippedText(context,label,valueRect,valueRect.x+valueRect.width/2,rect.y+rect.height/2,1*zoom);}context.font=font;
+    for(const field of control.numericFields){const fieldRect=viewRect(field.bounds),valueRect=viewRect(field.value),decrement=viewRect(field.decrement),increment=viewRect(field.increment);context.beginPath();context.roundRect(fieldRect.x,fieldRect.y,fieldRect.width,fieldRect.height,3*zoom);context.fillStyle=control.linked?theme.body:theme.control;context.fill();const component=typed.kind==="number"?typed.value:typed.value[field.component]??0,subfield=control.subfields.find(item=>item.index===field.component),label=edit?.kind==="number"&&edit.component===field.component?`${edit.buffer}|`:`${subfield?.label??""}${subfield?" ":""}${component.toFixed(3)}`;context.fillStyle=theme.muted;for(const[button,direction]of[[decrement,-1],[increment,1]] as const){const cx=button.x+button.width/2,cy=button.y+button.height/2,size=Math.min(2.5*zoom,button.width*.36);context.beginPath();context.moveTo(cx+direction*size,cy);context.lineTo(cx-direction*size,cy-size);context.lineTo(cx-direction*size,cy+size);context.closePath();context.fill();}context.fillStyle=theme.text;clippedText(context,label,valueRect,valueRect.x+valueRect.width/2,rect.y+rect.height/2,1*zoom);}
   } else if (control.subfields.length) {
     const typed = control.value as Extract<ParameterValue, { kind: "vector" | "color" }>;
     for (const field of control.subfields) {
       const fieldRect = { x: rect.x + (field.bounds.x-control.bounds.x)*zoom, y:rect.y, width:field.bounds.width*zoom, height:rect.height };
       context.beginPath();context.roundRect(fieldRect.x,fieldRect.y,fieldRect.width,fieldRect.height,3*zoom);context.fillStyle=control.linked?theme.body:theme.control;context.fill();
-      const component=typed.value[field.index]??0, full=`${field.label} ${component.toFixed(3)}`, compact=component.toFixed(3);
-      const label=context.measureText(full).width<=fieldRect.width-6*zoom?full:compact;
-      context.fillStyle=theme.text;clippedText(context,label,fieldRect,fieldRect.x+fieldRect.width/2,rect.y+rect.height/2,2*zoom);
+      const component=typed.value[field.index]??0;
+      context.fillStyle=theme.text;clippedText(context,`${field.label} ${component.toFixed(3)}`,fieldRect,fieldRect.x+fieldRect.width/2,rect.y+rect.height/2,2*zoom);
     }
   } else {
     clippedText(context,text,rect,rect.x+rect.width/2,rect.y+rect.height/2,3*zoom);
@@ -109,12 +112,12 @@ export function renderCanvas(context: OffscreenCanvasRenderingContext2D, snapsho
   for (const id of planned.candidateLinkIds??snapshot.links.keys()) {const link=snapshot.links.get(id); if (!link?.visible) continue;paintedLinks++; const color = link.muted?"#d94b4b":theme.sockets[link.dataType], start = worldToView(link.points[0]!, t), end = worldToView(link.points.at(-1)!, t), c1 = worldToView(link.controls[0], t), c2 = worldToView(link.controls[1], t); const emphasized=interaction?.selectedLinks?.has(link.id)||interaction?.knife?.crossed.has(link.id);context.strokeStyle = emphasized?"#ffffff":color;context.lineWidth=emphasized?4:2; context.beginPath(); context.moveTo(start.x, start.y); context.bezierCurveTo(c1.x, c1.y, c2.x, c2.y, end.x, end.y); context.stroke(); }
   for (const id of snapshot.drawOrder) {
     const node = snapshot.nodes.get(id); if (!node?.visible || node.kind === "frame") continue;
-    if (node.kind === "reroute") continue;paintedNodes++;
+    if(node.kind==="reroute"){paintedNodes++;const row=node.rows.find(item=>item.kind==="socket"),socket=row?.kind==="socket"?snapshot.sockets.get(row.socketId):undefined;if(socket){const p=worldToView(socket.anchor,t),selected=interaction?.selectedNodes.has(node.id);if(selected){context.beginPath();context.arc(p.x,p.y,(G.reroute+5)*t.zoom,0,Math.PI*2);context.strokeStyle=node.id===interaction?.activeNode?theme.nodeActive:theme.nodeSelected;context.lineWidth=2;context.stroke();}context.fillStyle=theme.sockets[socket.dataType];context.beginPath();context.arc(p.x,p.y,G.reroute*t.zoom,0,Math.PI*2);context.fill();}continue;}paintedNodes++;
     const r = viewRect(node.bounds), h = G.header * t.zoom;
     const radius = G.corner * t.zoom;
     context.shadowColor = theme.shadow; context.shadowBlur = 8; context.shadowOffsetY = 3; context.beginPath(); context.roundRect(r.x, r.y, r.width, r.height, radius); context.fillStyle = theme.body; context.fill(); context.shadowColor = "transparent";
     context.save(); context.beginPath(); context.roundRect(r.x, r.y, r.width, r.height, radius); context.clip(); context.fillStyle = theme.headers[node.category]; context.fillRect(r.x, r.y, r.width, h); context.restore(); context.beginPath(); context.roundRect(r.x, r.y, r.width, r.height, radius); context.strokeStyle = theme.outline; context.lineWidth = 1; context.stroke();
-    context.fillStyle = theme.text; context.font = `600 ${Math.max(9, 12 * t.zoom)}px sans-serif`; context.textBaseline = "middle"; context.fillText(node.label, r.x + 9 * t.zoom, r.y + h / 2, r.width - 18 * t.zoom);
+    context.fillStyle = theme.text; context.font = `600 ${Math.max(9, 12 * t.zoom)}px sans-serif`; context.textBaseline = "middle"; context.fillText(node.label, r.x + 9 * t.zoom, r.y + h / 2);
     const cx=r.x+r.width-12*t.zoom,cy=r.y+h/2,collapseAmount=Math.max(0,Math.min(1,interaction?.collapseAnimations?.get(node.id)?.value??(node.collapsed?1:0)));context.save();context.translate(cx,cy);context.rotate(-Math.PI/2*collapseAmount);context.beginPath();context.moveTo(-4*t.zoom,-3*t.zoom);context.lineTo(4*t.zoom,-3*t.zoom);context.lineTo(0,3*t.zoom);context.closePath();context.fillStyle="rgba(255,255,255,.65)";context.fill();context.restore();
     context.font = `${Math.max(9, 11 * t.zoom)}px sans-serif`;
     for (const row of node.rows) {
@@ -130,11 +133,8 @@ export function renderCanvas(context: OffscreenCanvasRenderingContext2D, snapsho
           context.fillText(control.label, rowRect.x + 8 * t.zoom, rowRect.y + rowRect.height / 2);
           paintControl(context, control, viewRect(control.bounds), theme, t.zoom, interaction);
         }
-      } else if (row.kind === "grading-pair") {
-        const scalar=snapshot.controls.get(row.scalarControlId),color=snapshot.controls.get(row.colorControlId),rowRect=viewRect(row.bounds);
-        context.fillStyle=theme.muted;context.fillText(row.label,rowRect.x+8*t.zoom,rowRect.y+rowRect.height/2);
-        if(scalar)paintControl(context,scalar,viewRect(scalar.bounds),theme,t.zoom,interaction);
-        if(color)paintControl(context,color,viewRect(color.bounds),theme,t.zoom,interaction);
+      } else if (row.kind === "grading-wheels") {
+        for(const wheel of row.wheels){const scalar=snapshot.controls.get(wheel.scalarControlId),color=snapshot.controls.get(wheel.colorControlId),value=color?.value as {kind?:unknown;value?:readonly number[]};if(!scalar||!color||value?.kind!=="color"||!value.value||!color.colorWheelBounds)continue;const label=viewRect(wheel.labelBounds),plane=viewRect(color.colorWheelBounds.plane),lightness=viewRect(color.colorWheelBounds.lightness),model=oklabToOklch(srgbToOklab([value.value[0]??1,value.value[1]??1,value.value[2]??1]));context.fillStyle=theme.muted;context.textAlign="center";context.fillText(wheel.label,label.x+label.width/2,label.y+label.height/2);paintOklchWheel(context,{plane,lightness},model,t.dpr,Math.min(.9,Math.max(.1,model.l)));paintControl(context,scalar,viewRect(scalar.bounds),theme,t.zoom,interaction);context.textAlign="left";}
       } else if (row.kind === "socket") {
         const socket = snapshot.sockets.get(row.socketId);
         if (socket) paintSocket(context, socket, theme, t.zoom, t);
@@ -147,7 +147,6 @@ export function renderCanvas(context: OffscreenCanvasRenderingContext2D, snapsho
     if(!node.collapsed){context.beginPath();context.moveTo(r.x+r.width-9*t.zoom,r.y+r.height);context.lineTo(r.x+r.width,r.y+r.height-9*t.zoom);context.strokeStyle="#8b8e95";context.lineWidth=1;context.stroke();}
     context.textAlign = "left";
   }
-  for (const id of snapshot.drawOrder){const node=snapshot.nodes.get(id);if(node?.visible && node.kind === "reroute"){paintedNodes++;const row=node.rows.find(item=>item.kind==="socket");const socket=row?.kind==="socket"?snapshot.sockets.get(row.socketId):undefined;if(socket){const p=worldToView(socket.anchor,t);context.fillStyle=theme.sockets[socket.dataType];context.beginPath();context.arc(p.x,p.y,G.reroute*t.zoom,0,Math.PI*2);context.fill();}}}
   if(interaction?.parentHighlight){const n=snapshot.nodes.get(interaction.parentHighlight);if(n){const r=viewRect(n.bounds);context.strokeStyle="#f5a623";context.lineWidth=3;context.strokeRect(r.x,r.y,r.width,r.height);}}
   if(interaction?.linkDrag){const from=[...snapshot.sockets.values()].find(socket=>socket.id===interaction.linkDrag?.from);if(from){const a=worldToView(from.anchor,t),b=interaction.linkDrag.current,dx=Math.max(40,Math.abs(b.x-a.x)*.5);context.strokeStyle=theme.sockets[from.dataType];context.lineWidth=2;context.beginPath();context.moveTo(a.x,a.y);context.bezierCurveTo(a.x+dx,a.y,b.x-dx,b.y,b.x,b.y);context.stroke();for(const socket of snapshot.sockets.values()){if(socket.direction==="input"&&(socket.dataType==="any"||socket.accepts.includes(from.dataType))){const p=worldToView(socket.anchor,t);context.beginPath();context.arc(p.x,p.y,(socket.id===interaction.linkDrag.candidate?10:8),0,Math.PI*2);context.strokeStyle=socket.id===interaction.linkDrag.candidate?"#fff":theme.sockets[socket.dataType];context.stroke();}}}}
   if(interaction?.knife){const points=interaction.knife.points;context.strokeStyle=interaction.knife.mode==="mute"?"#e85b5b":"#ffffff";context.lineWidth=2;context.beginPath();points.forEach((p,i)=>i?context.lineTo(p.x,p.y):context.moveTo(p.x,p.y));context.stroke();const p=points.at(-1);if(p){context.beginPath();context.moveTo(p.x-7,p.y-7);context.lineTo(p.x+7,p.y+7);context.moveTo(p.x+7,p.y-7);context.lineTo(p.x-7,p.y+7);context.stroke();}}

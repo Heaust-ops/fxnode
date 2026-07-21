@@ -17,7 +17,7 @@ const P = Object.freeze({
   add: { x: 368, y: 195 }, remove: { x: 404, y: 195 }, flip: { x: 479, y: 195 }, distribute: { x: 593, y: 195 },
   mode: { x: 395, y: 217 }, interpolation: { x: 501, y: 217 }, hue: { x: 614, y: 217 },
   gradient: { x: 500, y: 242 }, firstHandle: { x: 386, y: 271 }, selector: { x: 387, y: 299 },
-  position: { x: 483, y: 299 }, swatch: { x: 552, y: 299 }, r: { x: 574, y: 299 }, g: { x: 596, y: 299 }, b: { x: 618, y: 299 }, a: { x: 639, y: 299 },
+  position: { x: 483, y: 299 }, swatch: { x: 380, y: 321 }, r: { x: 440, y: 321 }, g: { x: 500, y: 321 }, b: { x: 560, y: 321 }, a: { x: 620, y: 321 },
 } satisfies Record<string, Point>);
 
 async function open(page: Page) {
@@ -65,6 +65,14 @@ test("mode, interpolation, and hue controls cycle legal values and survive save/
 test("position and targeted RGBA scrubs alter only the active stop field", async ({ page }) => {
   await open(page); let a = await state(page); const finishPos = await drag(page, P.position, 10, true); await finishPos(); let b = await state(page); pairs(a, b, 1); expect(ramp(b).stops[0]!.position).toBeCloseTo(ramp(a).stops[0]!.position + .01); expect(ramp(b).stops[0]!.color).toEqual(ramp(a).stops[0]!.color);
   for (const [point, component, dx] of [[P.g, 1, 10], [P.a, 3, -10]] as const) { a = b; const finish = await drag(page, point, dx, true); await finish(); b = await state(page); pairs(a, b, 1); const before = ramp(a).stops[0]!, after = ramp(b).stops.find(s => s.id === before.id)!; expect(after.position).toBe(before.position); after.color.forEach((v, i) => i === component ? expect(v).not.toBe(before.color[i]) : expect(v).toBe(before.color[i])); }
+});
+
+test("active stop swatch opens an Oklch picker with transient preview and atomic commit",async({page})=>{
+  const canvas=await open(page),before=await state(page);await canvas.click({position:P.swatch});
+  const box=await canvas.boundingBox();if(!box)throw new Error("Canvas missing");
+  await page.mouse.move(box.x+516,box.y+409);await page.mouse.down();await page.mouse.move(box.x+576,box.y+409,{steps:4});
+  pairs(before,await state(page),0);await page.mouse.up();const committed=await state(page);pairs(before,committed,1);expect(ramp(committed).stops[0]!.color).not.toEqual(ramp(before).stops[0]!.color);
+  await canvas.click({position:P.swatch});await page.mouse.move(box.x+516,box.y+409);await page.mouse.down();await page.mouse.move(box.x+536,box.y+372);await canvas.press("Escape");await page.mouse.up();pairs(committed,await state(page),0);
 });
 
 test("Backspace resets ramp or active color, undo restores, and Escape is inert", async ({ page }) => {

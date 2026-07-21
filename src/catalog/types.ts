@@ -28,7 +28,7 @@ export type VisibilityExpression =
 export type DescriptorUiItem =
   | { readonly kind: "parameter"; readonly key: string; readonly label?: string; readonly visibleWhen?: VisibilityExpression }
   | { readonly kind: "resource"; readonly key: string; readonly label?: string; readonly openLabel?: string; readonly newLabel?: string; readonly visibleWhen?: VisibilityExpression }
-  | { readonly kind: "grading-pair"; readonly scalar: string; readonly color: string; readonly label: string; readonly visibleWhen?: VisibilityExpression }
+  | { readonly kind: "grading-wheels"; readonly wheels:readonly [{readonly scalar:string;readonly color:string;readonly label:string},{readonly scalar:string;readonly color:string;readonly label:string},{readonly scalar:string;readonly color:string;readonly label:string}]; readonly visibleWhen?: VisibilityExpression }
   | { readonly kind: "section" | "panel"; readonly label: string; readonly visibleWhen?: VisibilityExpression }
   | { readonly kind: "eyedropper"; readonly label: string; readonly visibleWhen?: VisibilityExpression }
   | { readonly kind: "socket"; readonly key: string; readonly label?: string; readonly visibleWhen?: VisibilityExpression; readonly muteBypass?: readonly [string, string] }

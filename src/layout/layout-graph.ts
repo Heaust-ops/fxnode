@@ -7,6 +7,28 @@ import type { DescriptorUiItem, ValueSchema, VisibilityExpression } from "../cat
 import { effectivelyMutedLinks } from "./link-mute.js";
 
 const title = (value: string): string => value.replace(/-/g, " ").replace(/\b\w/g, letter => letter.toUpperCase());
+const textWidth=(value:string)=>value.length*6.5;
+function minimumControlWidth(schema:ValueSchema|undefined):number{
+  if(!schema)return 80;
+  if(schema.type==="vector")return 3*58+6;
+  if(schema.type==="color")return 4*58+9;
+  if(schema.type==="color-ramp")return 300;
+  if(schema.type==="string")return Math.max(80,...(schema.enum??[]).map(value=>textWidth(value)+28));
+  return 80;
+}
+function minimumNodeWidth(descriptor:ReturnType<typeof getDescriptor>,node:GraphNode,items:readonly DescriptorUiItem[]):number{
+  if(!descriptor)return G.minWidth;
+  let width=Math.max(G.minWidth,textWidth(node.label)+42);
+  for(const item of items){
+    const label="label" in item?item.label:item.kind==="parameter"||item.kind==="resource"?title(item.key):item.kind==="socket"?title(item.key):"";
+    if(label)width=Math.max(width,(textWidth(label)+18)/.4);
+    if(item.kind==="parameter"||item.kind==="resource"){const schema=descriptor.parameters[item.key];width=Math.max(width,schema?.type==="color-ramp"?320:minimumControlWidth(schema)/.53);}
+    else if(item.kind==="socket"){const socket=descriptor.sockets.find(value=>value.key===item.key);if(socket?.value)width=Math.max(width,minimumControlWidth(socket.value)/.53);}
+    else if(item.kind==="grading-wheels")width=Math.max(width,400);
+  }
+  return Math.min(G.maxWidth,Math.ceil(width));
+}
+const uiItemUnits=(item:DescriptorUiItem,descriptor:ReturnType<typeof getDescriptor>)=>item.kind==="header"?2:item.kind==="grading-wheels"?7:(item.kind==="parameter"||item.kind==="resource")&&descriptor?.parameters[item.key]?.type==="color-ramp"?8:1;
 function controlKind(schema: ValueSchema | undefined): LayoutControl["kind"] {
   if (!schema) return "readonly-json";
   if (schema.type === "string" && schema.enum) return "enum";
@@ -63,7 +85,6 @@ export function buildLayoutScene(document: GraphDocument): LayoutScene {
   const origins=new Map<string,Vec2>(),depths=new Map<string,number>();const resolve=(node:GraphNode):Vec2=>{const known=origins.get(node.id);if(known)return known;const parent=node.parentId?document.nodes[node.parentId]:undefined,p=parent?resolve(parent):{x:0,y:0};depths.set(node.id,(parent?depths.get(parent.id)!+1:0));const at={x:p.x+node.position.x,y:p.y+node.position.y};origins.set(node.id,at);return at;};
   for (const node of sorted) {
     const at = resolve(node), kind = node.typeId === "fxnode.common.frame" ? "frame" : node.typeId === "fxnode.common.reroute" ? "reroute" : "node";
-    const width = kind === "reroute" ? G.reroute * 2 : Math.min(G.maxWidth, Math.max(G.minWidth, node.size.x));
     const descriptor = node.known ? getDescriptor(node.typeId) : undefined;
     const descriptorSockets = new Map(descriptor?.sockets.map(item => [item.key, item]));
     const visibleSockets = node.sockets.filter(socket => {
@@ -77,23 +98,22 @@ export function buildLayoutScene(document: GraphDocument): LayoutScene {
     const visibleItems = kind === "node" && !node.collapsed
       ? ui.filter(item => visible(item.visibleWhen, node.parameters)).filter(item => item.kind !== "socket" || visibleSockets.some(socket => socket.key === item.key))
       : [];
-    const height = kind === "frame"
+    const contentHeight = kind === "frame"
       ? node.size.y
       : kind === "reroute"
       ? G.reroute * 2
       : node.collapsed
         ? G.header
-        : G.header + visibleItems.reduce((sum, item) => {
-          if (item.kind === "header") return sum + 2;
-          if ((item.kind === "parameter" || item.kind === "resource") && descriptor?.parameters[item.key]?.type === "color-ramp") return sum + 7;
-          return sum + 1;
-        }, 0) * G.row + G.gap;
+        : G.header + visibleItems.reduce((sum, item) => sum+uiItemUnits(item,descriptor), 0) * G.row + G.gap;
+    const minimumSize={x:kind==="reroute"?G.reroute*2:kind==="frame"?G.minWidth:minimumNodeWidth(descriptor,node,visibleItems),y:contentHeight};
+    const width = kind === "reroute" ? G.reroute * 2 : kind==="frame"?node.size.x:Math.min(G.maxWidth,Math.max(minimumSize.x,node.size.x));
+    const height=kind==="node"&&!node.collapsed?Math.max(contentHeight,node.size.y):contentHeight;
     const nodeBounds = { x: at.x, y: at.y, width, height };
     const rowBySocket = new Map<string,number>();
     let socketRowOffset=0;
     for(const item of visibleItems){
       if(item.kind==="socket")rowBySocket.set(item.key,socketRowOffset);
-      socketRowOffset+=item.kind==="header"?2:(item.kind==="parameter"||item.kind==="resource")&&descriptor?.parameters[item.key]?.type==="color-ramp"?7:1;
+      socketRowOffset+=uiItemUnits(item,descriptor);
     }
     const layoutSockets: LayoutSocket[] = visibleSockets.map(socket => {
       const linkIds = linksBySocket.get(socket.id)??[];
@@ -119,7 +139,7 @@ export function buildLayoutScene(document: GraphDocument): LayoutScene {
     let rowOffset = 0;
     for (const item of visibleItems) {
       const parameterSchema = item.kind === "parameter" || item.kind === "resource" ? descriptor?.parameters[item.key] : undefined;
-      const units = item.kind === "header" ? 2 : parameterSchema?.type === "color-ramp" ? 7 : 1;
+      const units = uiItemUnits(item,descriptor);
       const rowBounds: Rect = { x: at.x, y: at.y - G.header - rowOffset * G.row, width, height: units * G.row };
       if (item.kind === "header" || item.kind === "category" || item.kind === "section" || item.kind === "panel" || item.kind === "eyedropper") {
         rows.push({ kind: item.kind === "eyedropper" ? "placeholder" : item.kind, label: item.label, units, bounds: rowBounds });
@@ -131,18 +151,14 @@ export function buildLayoutScene(document: GraphDocument): LayoutScene {
         const id = `${node.id}:parameter:${item.key}`;
         const controlBounds = schema?.type === "color-ramp" ? { x: at.x + 10, y: rowBounds.y - 3, width: width - 20, height: units * G.row - 6 } : { x: at.x + width * .42, y: rowBounds.y - 3, width: width * .53, height: G.row - 6 };
         const subfields = makeSubfields(controlBounds, schema?.type);
-        const rampBounds = schema?.type === "color-ramp" ? {toolbar:{x:controlBounds.x,y:controlBounds.y,width:controlBounds.width,height:20},mode:{x:controlBounds.x,y:controlBounds.y-22,width:controlBounds.width*.3,height:20},interpolation:{x:controlBounds.x+controlBounds.width*.31,y:controlBounds.y-22,width:controlBounds.width*.4,height:20},hue:{x:controlBounds.x+controlBounds.width*.72,y:controlBounds.y-22,width:controlBounds.width*.28,height:20},gradient:{x:controlBounds.x+8,y:controlBounds.y-46,width:controlBounds.width-16,height:28},handles:{x:controlBounds.x+8,y:controlBounds.y-74,width:controlBounds.width-16,height:28},selector:{x:controlBounds.x,y:controlBounds.y-104,width:controlBounds.width*.25,height:20},position:{x:controlBounds.x+controlBounds.width*.27,y:controlBounds.y-104,width:controlBounds.width*.35,height:20},color:{x:controlBounds.x+controlBounds.width*.64,y:controlBounds.y-104,width:controlBounds.width*.36,height:20}} : undefined;
+        const rampBounds = schema?.type === "color-ramp" ? {toolbar:{x:controlBounds.x,y:controlBounds.y,width:controlBounds.width,height:20},mode:{x:controlBounds.x,y:controlBounds.y-22,width:controlBounds.width*.3,height:20},interpolation:{x:controlBounds.x+controlBounds.width*.31,y:controlBounds.y-22,width:controlBounds.width*.4,height:20},hue:{x:controlBounds.x+controlBounds.width*.72,y:controlBounds.y-22,width:controlBounds.width*.28,height:20},gradient:{x:controlBounds.x+8,y:controlBounds.y-46,width:controlBounds.width-16,height:28},handles:{x:controlBounds.x+8,y:controlBounds.y-74,width:controlBounds.width-16,height:28},selector:{x:controlBounds.x,y:controlBounds.y-104,width:controlBounds.width*.25,height:20},position:{x:controlBounds.x+controlBounds.width*.27,y:controlBounds.y-104,width:controlBounds.width*.35,height:20},color:{x:controlBounds.x,y:controlBounds.y-126,width:controlBounds.width,height:20}} : undefined;
         const control: LayoutControl = { id, nodeId: node.id, source: descriptor ? "parameter" : "unknown", key: item.key, label: item.label ?? title(item.key), kind: item.kind === "resource" ? "resource" : controlKind(schema), value: node.parameters[item.key], ...(schema ? { schema } : {}), linked: false, bounds: controlBounds, subfields, numericFields:makeNumericFields(controlBounds,schema?.type,subfields), ...(rampBounds?{rampBounds}:{}) };
         controls.set(id, control);
         rows.push({ kind: "control", controlId: id, units, bounds: rowBounds });
-      } else if (item.kind === "grading-pair") {
-        const scalarSchema=descriptor?.parameters[item.scalar],colorSchema=descriptor?.parameters[item.color];
-        const scalarId=`${node.id}:parameter:${item.scalar}`,colorId=`${node.id}:parameter:${item.color}`;
-        const scalarBounds={x:at.x+width*.28,y:rowBounds.y-3,width:width*.20,height:G.row-6},colorBounds={x:at.x+width*.50,y:rowBounds.y-3,width:width*.45,height:G.row-6};
-        const colorSubfields=makeSubfields(colorBounds,colorSchema?.type);
-        controls.set(scalarId,{id:scalarId,nodeId:node.id,source:"parameter",key:item.scalar,label:item.label,kind:controlKind(scalarSchema),value:node.parameters[item.scalar],...(scalarSchema?{schema:scalarSchema}:{}),linked:false,bounds:scalarBounds,subfields:[],numericFields:makeNumericFields(scalarBounds,scalarSchema?.type,[])});
-        controls.set(colorId,{id:colorId,nodeId:node.id,source:"parameter",key:item.color,label:item.label,kind:controlKind(colorSchema),value:node.parameters[item.color],...(colorSchema?{schema:colorSchema}:{}),linked:false,bounds:colorBounds,subfields:colorSubfields,numericFields:makeNumericFields(colorBounds,colorSchema?.type,colorSubfields)});
-        rows.push({kind:"grading-pair",label:item.label,scalarControlId:scalarId,colorControlId:colorId,units:1,bounds:rowBounds});
+      } else if (item.kind === "grading-wheels") {
+        const gap=10,padding=10,columnWidth=(width-padding*2-gap*2)/3;
+        const wheels=item.wheels.map((wheel,index)=>{const x=at.x+padding+index*(columnWidth+gap),scalarSchema=descriptor?.parameters[wheel.scalar],colorSchema=descriptor?.parameters[wheel.color],scalarId=`${node.id}:parameter:${wheel.scalar}`,colorId=`${node.id}:parameter:${wheel.color}`,labelBounds={x,y:rowBounds.y-4,width:columnWidth,height:18},plane={x:x+2,y:rowBounds.y-25,width:columnWidth-24,height:columnWidth-24},lightness={x:x+columnWidth-18,y:rowBounds.y-25,width:14,height:columnWidth-24},scalarBounds={x:x+2,y:rowBounds.y-25-(columnWidth-24)-10,width:columnWidth-6,height:18},colorBounds={x:plane.x,y:plane.y,width:lightness.x+lightness.width-plane.x,height:plane.height};controls.set(scalarId,{id:scalarId,nodeId:node.id,source:"parameter",key:wheel.scalar,label:wheel.label,kind:controlKind(scalarSchema),value:node.parameters[wheel.scalar],...(scalarSchema?{schema:scalarSchema}:{}),linked:false,bounds:scalarBounds,subfields:[],numericFields:makeNumericFields(scalarBounds,scalarSchema?.type,[])});controls.set(colorId,{id:colorId,nodeId:node.id,source:"parameter",key:wheel.color,label:wheel.label,kind:controlKind(colorSchema),value:node.parameters[wheel.color],...(colorSchema?{schema:colorSchema}:{}),linked:false,bounds:colorBounds,subfields:[],numericFields:[],colorWheelBounds:{plane,lightness}});return{label:wheel.label,labelBounds,scalarControlId:scalarId,colorControlId:colorId};});
+        rows.push({kind:"grading-wheels",wheels:wheels as unknown as Extract<LayoutRow,{kind:"grading-wheels"}>["wheels"],units,bounds:rowBounds});
       } else if (item.kind === "socket") {
         const raw = node.sockets.find(socket => socket.key === item.key);
         const socket = raw && sockets.get(raw.id);
@@ -163,7 +179,7 @@ export function buildLayoutScene(document: GraphDocument): LayoutScene {
       rows.push({ kind: "socket", socketId: layoutSockets[0].id, units: 1, bounds: nodeBounds });
     }
     const byKey=new Map(node.sockets.map(s=>[s.key,s.id]));const bypasses=node.muted?(descriptor?.muteBypass??[]).flatMap(([a,b])=>{const from=byKey.get(a),to=byKey.get(b),aa=from&&sockets.get(from)?.anchor,bb=to&&sockets.get(to)?.anchor;return aa&&bb?[{from:aa,to:bb}]:[];}):[];
-    nodes.set(node.id, { id: node.id, ...(node.parentId ? { parentId: node.parentId } : {}), typeId: node.typeId, label: node.label, category: category(descriptor), kind, localPosition: node.position, worldPosition: at, authoredSize: node.size, bounds: nodeBounds, header: { x: at.x, y: at.y, width, height: kind === "reroute" ? 0 : G.header }, collapseHitRect: { x: at.x + width - G.header, y: at.y, width: G.header, height: G.header }, resizeHitRect: { x: at.x + width - G.resize, y: at.y - height + G.resize, width: G.resize * 2, height: G.resize * 2 }, collapsed: node.collapsed, muted: node.muted, visible: true, rows, bypasses } satisfies LayoutNode);
+    nodes.set(node.id, { id: node.id, ...(node.parentId ? { parentId: node.parentId } : {}), typeId: node.typeId, label: node.label, category: category(descriptor), kind, localPosition: node.position, worldPosition: at, authoredSize: node.size, minimumSize, bounds: nodeBounds, header: { x: at.x, y: at.y, width, height: kind === "reroute" ? 0 : G.header }, collapseHitRect: { x: at.x + width - G.header, y: at.y, width: G.header, height: G.header }, resizeHitRect: { x: at.x + width - G.resize, y: at.y - height + G.resize, width: G.resize * 2, height: G.resize * 2 }, collapsed: node.collapsed, muted: node.muted, visible: true, rows, bypasses } satisfies LayoutNode);
   }
   // Frames are behind all regular nodes. Their authored size is expanded to contain direct children.
   for (const frame of sorted.filter(node => node.typeId === "fxnode.common.frame").sort((a, b) => depths.get(b.id)! - depths.get(a.id)!)) {
@@ -185,3 +201,4 @@ export function buildLayoutScene(document: GraphDocument): LayoutScene {
 }
 export function createLayoutView(scene:LayoutScene,transform:ViewTransform,nodeIds:readonly NodeId[]=scene.drawOrder,linkIds:readonly LinkId[]=[...scene.links.keys()]):LayoutView{const viewport={x:transform.center.x-transform.viewport.x/transform.zoom/2,y:transform.center.y+transform.viewport.y/transform.zoom/2,width:transform.viewport.x/transform.zoom,height:transform.viewport.y/transform.zoom};const ns=nodeIds.filter(id=>{const n=scene.nodes.get(id);return n&&intersects(n.bounds,viewport,G.margin);}).sort((a,b)=>(scene.nodeRanks.get(a)??0)-(scene.nodeRanks.get(b)??0)),ls=linkIds.filter(id=>{const l=scene.links.get(id);return l&&intersects(l.bounds,viewport,G.margin);}).sort((a,b)=>(scene.linkRanks.get(a)??0)-(scene.linkRanks.get(b)??0));return{...scene,drawOrder:ns,transform,candidateNodeIds:ns,candidateLinkIds:ls,totalNodes:scene.nodes.size,totalLinks:scene.links.size};}
 export function layoutGraph(document:GraphDocument,transform:ViewTransform):LayoutSnapshot{return createLayoutView(buildLayoutScene(document),transform);}
+export function applyNodeOrder<T extends LayoutSnapshot>(layout:T,order:readonly NodeId[]):T{const frames=layout.drawOrder.filter(id=>layout.nodes.get(id)?.kind==="frame"),ordinary=layout.drawOrder.filter(id=>layout.nodes.get(id)?.kind!=="frame"),available=new Set(ordinary),promoted=order.filter(id=>available.has(id)),raised=new Set(promoted);return{...layout,drawOrder:[...frames,...ordinary.filter(id=>!raised.has(id)),...promoted]};}
