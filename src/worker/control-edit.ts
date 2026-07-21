@@ -47,6 +47,24 @@ export function scrubValue(
   return original;
 }
 
+export function setNumericComponent(control:LayoutControl,original:ParameterValue,component:number,input:number):ParameterValue{
+  const clamped=clampNumber(input,control.schema);
+  const next=control.schema?.type==="number"&&control.schema.integer?Math.round(clamped):clamped;
+  if(original.kind==="number")return{kind:"number",value:next};
+  if(original.kind==="vector"){
+    const value:[number,number,number]=[...original.value];value[component]=next;return{kind:"vector",value};
+  }
+  if(original.kind==="color"){
+    const value:[number,number,number,number]=[...original.value];value[component]=Math.min(1,Math.max(0,next));return{kind:"color",value};
+  }
+  return original;
+}
+
+export function numericStep(control:LayoutControl,fine:boolean):number{
+  const base=control.schema?.type==="number"?(control.schema.step??(control.schema.integer?1:.1)):.1;
+  return fine&&control.schema?.type==="number"&&!control.schema.integer?base/10:fine?base/10:base;
+}
+
 export function cycleEnum(values: readonly string[], current: string, direction: 1 | -1): string {
   const index = values.indexOf(current);
   return values[(Math.max(0, index) + direction + values.length) % values.length] ?? current;

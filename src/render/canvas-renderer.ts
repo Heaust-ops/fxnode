@@ -6,13 +6,14 @@ import type { RenderTheme } from "./theme.js";
 import { isColorRamp, sampleColorRamp } from "../catalog/color-ramp.js";
 
 export interface InteractionRenderState { readonly knife?:{points:readonly {x:number;y:number}[];crossed:ReadonlySet<LinkId>;mode:"remove"|"mute"} }
-export interface InteractionRenderState { readonly selectedNodes: ReadonlySet<NodeId>; readonly selectedLinks?:ReadonlySet<LinkId>; readonly activeNode?: NodeId; readonly hoverNode?: NodeId; readonly focusedControl?: string; readonly hoveredControl?:string;readonly focusedRampTarget?:string;readonly hoveredRampTarget?:string;readonly activeRampStopByNode?:ReadonlyMap<NodeId,string>;readonly collapseAnimations?:ReadonlyMap<NodeId,{readonly value:number}>; readonly textEditBuffer?: string; readonly box?:{start:{x:number;y:number};current:{x:number;y:number}};readonly linkDrag?:{from:SocketId;current:{x:number;y:number};candidate?:SocketId};readonly parentHighlight?:NodeId }
+export interface InteractionRenderState { readonly selectedNodes: ReadonlySet<NodeId>; readonly selectedLinks?:ReadonlySet<LinkId>; readonly activeNode?: NodeId; readonly hoverNode?: NodeId; readonly focusedControl?: string; readonly hoveredControl?:string;readonly focusedRampTarget?:string;readonly hoveredRampTarget?:string;readonly activeRampStopByNode?:ReadonlyMap<NodeId,string>;readonly collapseAnimations?:ReadonlyMap<NodeId,{readonly value:number}>; readonly controlEdit?:{readonly kind:"string";readonly controlId:string;readonly buffer:string}|{readonly kind:"number";readonly controlId:string;readonly component:number;readonly buffer:string}; readonly box?:{start:{x:number;y:number};current:{x:number;y:number}};readonly linkDrag?:{from:SocketId;current:{x:number;y:number};candidate?:SocketId};readonly parentHighlight?:NodeId }
 export interface RenderStats { readonly candidateNodes:number;readonly totalNodes:number;readonly paintedNodes:number;readonly candidateLinks:number;readonly totalLinks:number;readonly paintedLinks:number;readonly paintMs:number }
 
 function valueText(value: unknown): string {
   const typed = value as ParameterValue | undefined;
   if (!typed || typeof typed !== "object" || !("kind" in typed)) return "—";
-  if (typed.kind === "vector" || typed.kind === "color") return typed.value.map(component => component.toFixed(2)).join(" ");
+  if (typed.kind === "number") return typed.value.toFixed(3);
+  if (typed.kind === "vector" || typed.kind === "color") return typed.value.map(component => component.toFixed(3)).join(" ");
   if (typed.kind === "json") return "…";
   return String(typed.value);
 }
@@ -28,16 +29,17 @@ function clippedText(context: OffscreenCanvasRenderingContext2D, text: string, r
 }
 
 function paintControl(context: OffscreenCanvasRenderingContext2D, control: LayoutControl, rect: Rect, theme: RenderTheme, zoom: number, interaction?: InteractionRenderState): void {
+  const viewRect=(bounds:Rect):Rect=>({x:rect.x+(bounds.x-control.bounds.x)*zoom,y:rect.y+(control.bounds.y-bounds.y)*zoom,width:bounds.width*zoom,height:bounds.height*zoom});
   const typedRamp=control.value as {kind?:unknown;value?:unknown};
   if(control.kind==="color-ramp"&&typedRamp?.kind==="json"&&isColorRamp(typedRamp.value)){
-    const ramp=typedRamp.value,active=ramp.stops.find(s=>s.id===interaction?.activeRampStopByNode?.get(control.nodeId))??ramp.stops[0]!,toolbar={x:rect.x,y:rect.y,width:rect.width,height:20*zoom},menusY=rect.y+22*zoom,gradient={x:rect.x,y:rect.y+46*zoom,width:rect.width,height:28*zoom};
-    context.fillStyle=theme.control;context.fillRect(toolbar.x,toolbar.y,toolbar.width,toolbar.height);context.fillStyle=theme.text;context.textAlign="center";clippedText(context,"+     −          Flip             Distribute",toolbar,toolbar.x+toolbar.width/2,toolbar.y+toolbar.height/2);
+    const bounds=control.rampBounds!,ramp=typedRamp.value,active=ramp.stops.find(s=>s.id===interaction?.activeRampStopByNode?.get(control.nodeId))??ramp.stops[0]!,toolbar=viewRect(bounds.toolbar),menusY=viewRect(bounds.mode).y,gradient=viewRect(bounds.gradient);
+    context.textAlign="center";const toolbarButtons=[[0,.12,"+"],[.12,.24,"−"],[.24,.62,"Flip"],[.62,1,"Distribute"]] as const;for(const[start,end,label]of toolbarButtons){const button={x:toolbar.x+toolbar.width*start,y:toolbar.y,width:toolbar.width*(end-start)-1*zoom,height:toolbar.height};context.fillStyle=theme.control;context.fillRect(button.x,button.y,button.width,button.height);context.fillStyle=theme.text;clippedText(context,label,button,button.x+button.width/2,button.y+button.height/2);}
     const labels=[ramp.colorMode.toUpperCase(),ramp.interpolation.replace("-"," "),ramp.hueInterpolation];const menuWidths=[.3,.41,.29];let x=rect.x;for(let i=0;i<3;i++){const w=rect.width*menuWidths[i]!;context.fillStyle=theme.control;context.fillRect(x,menusY,w-2*zoom,20*zoom);context.fillStyle=theme.text;context.fillText(labels[i]!,x+w/2,menusY+10*zoom);x+=w;}
-    gradient.x+=8*zoom;gradient.width-=16*zoom;const cell=6*zoom;for(let yy=gradient.y;yy<gradient.y+gradient.height;yy+=cell)for(let xx=gradient.x;xx<gradient.x+gradient.width;xx+=cell){context.fillStyle=((Math.floor((xx-gradient.x)/cell)+Math.floor((yy-gradient.y)/cell))%2)?"#777":"#aaa";context.fillRect(xx,yy,cell,cell);}
+    context.save();context.beginPath();context.rect(gradient.x,gradient.y,gradient.width,gradient.height);context.clip();const cell=6*zoom;for(let yy=gradient.y;yy<gradient.y+gradient.height;yy+=cell)for(let xx=gradient.x;xx<gradient.x+gradient.width;xx+=cell){context.fillStyle=((Math.floor((xx-gradient.x)/cell)+Math.floor((yy-gradient.y)/cell))%2)?"#777":"#aaa";context.fillRect(xx,yy,Math.min(cell,gradient.x+gradient.width-xx),Math.min(cell,gradient.y+gradient.height-yy));}
     const steps=Math.max(2,Math.ceil(gradient.width));for(let i=0;i<steps;i++){const c=sampleColorRamp(ramp,i/(steps-1));context.fillStyle=`rgba(${c[0]*255},${c[1]*255},${c[2]*255},${c[3]})`;context.fillRect(gradient.x+i*gradient.width/steps,gradient.y,gradient.width/steps+1,gradient.height);}
-    context.strokeStyle="#111";context.strokeRect(gradient.x,gradient.y,gradient.width,gradient.height);
+    context.restore();context.strokeStyle="#111";context.lineWidth=1;context.strokeRect(gradient.x+.5,gradient.y+.5,Math.max(0,gradient.width-1),Math.max(0,gradient.height-1));
     for(const stop of ramp.stops){const sx=gradient.x+stop.position*gradient.width,sy=gradient.y+gradient.height;context.beginPath();context.moveTo(sx,sy);context.lineTo(sx-6*zoom,sy+12*zoom);context.lineTo(sx+6*zoom,sy+12*zoom);context.closePath();context.fillStyle=`rgb(${stop.color[0]*255},${stop.color[1]*255},${stop.color[2]*255})`;context.fill();context.strokeStyle=stop.id===active.id?"#f5a623":"#fff";context.lineWidth=stop.id===active.id?3:2;context.stroke();}
-    const detailsY=rect.y+104*zoom,widths=[.25,.35,.40],details=[active.id,`Pos ${active.position.toFixed(3)}`,active.color.map((c,i)=>`${"RGBA"[i]} ${c.toFixed(2)}`).join(" ")];let dx=rect.x;for(let i=0;i<3;i++){const w=rect.width*widths[i]!;const cellRect={x:dx,y:detailsY,width:w-2*zoom,height:20*zoom};context.fillStyle=theme.control;context.fillRect(cellRect.x,cellRect.y,cellRect.width,cellRect.height);context.fillStyle=theme.text;clippedText(context,details[i]!,cellRect,cellRect.x+cellRect.width/2,cellRect.y+cellRect.height/2);dx+=w;}if(interaction?.focusedControl===control.id){context.strokeStyle="#f5a623";context.strokeRect(rect.x,detailsY,rect.width,20*zoom);}context.textAlign="left";return;
+    const detailsY=viewRect(bounds.selector).y,widths=[.25,.35,.40],details=[active.id,`Pos ${active.position.toFixed(3)}`,active.color.map((c,i)=>`${"RGBA"[i]} ${c.toFixed(3)}`).join(" ")];let dx=rect.x;for(let i=0;i<3;i++){const w=rect.width*widths[i]!;const cellRect={x:dx,y:detailsY,width:w-2*zoom,height:20*zoom};context.fillStyle=theme.control;context.fillRect(cellRect.x,cellRect.y,cellRect.width,cellRect.height);context.fillStyle=theme.text;clippedText(context,details[i]!,cellRect,cellRect.x+cellRect.width/2,cellRect.y+cellRect.height/2);dx+=w;}if(interaction?.focusedControl===control.id){context.strokeStyle="#f5a623";context.strokeRect(rect.x,detailsY,rect.width,20*zoom);}context.textAlign="left";return;
   }
   context.beginPath();
   context.roundRect(rect.x, rect.y, rect.width, rect.height, 4 * zoom);
@@ -55,13 +57,17 @@ function paintControl(context: OffscreenCanvasRenderingContext2D, control: Layou
     context.textAlign = "left";
     return;
   }
-  const text = interaction?.focusedControl === control.id && interaction.textEditBuffer !== undefined ? `${interaction.textEditBuffer}|` : valueText(control.value);
-  if (control.subfields.length) {
+  const edit=interaction?.controlEdit?.controlId===control.id?interaction.controlEdit:undefined;
+  const text = edit?.kind==="string" ? `${edit.buffer}|` : valueText(control.value);
+  if(control.numericFields.length){
+    const typed=control.value as Extract<ParameterValue,{kind:"number"|"vector"|"color"}>;
+    const font=context.font;for(const field of control.numericFields){const fieldRect=viewRect(field.bounds),valueRect=viewRect(field.value),decrement=viewRect(field.decrement),increment=viewRect(field.increment);context.beginPath();context.roundRect(fieldRect.x,fieldRect.y,fieldRect.width,fieldRect.height,3*zoom);context.fillStyle=control.linked?theme.body:theme.control;context.fill();const component=typed.kind==="number"?typed.value:typed.value[field.component]??0,subfield=control.subfields.find(item=>item.index===field.component),full=`${subfield?.label??""}${subfield?" ":""}${component.toFixed(3)}`,compact=component.toFixed(3),editing=edit?.kind==="number"&&edit.component===field.component;context.font=`${Math.max(7,Math.min(11*zoom,valueRect.width/Math.max(1,compact.length*.52)))}px sans-serif`;const label=editing?`${edit.buffer}|`:context.measureText(full).width<=valueRect.width-2*zoom?full:compact;context.fillStyle=theme.muted;for(const[button,direction]of[[decrement,-1],[increment,1]] as const){const cx=button.x+button.width/2,cy=button.y+button.height/2,size=Math.min(2.5*zoom,button.width*.36);context.beginPath();context.moveTo(cx+direction*size,cy);context.lineTo(cx-direction*size,cy-size);context.lineTo(cx-direction*size,cy+size);context.closePath();context.fill();}context.fillStyle=theme.text;clippedText(context,label,valueRect,valueRect.x+valueRect.width/2,rect.y+rect.height/2,1*zoom);}context.font=font;
+  } else if (control.subfields.length) {
     const typed = control.value as Extract<ParameterValue, { kind: "vector" | "color" }>;
     for (const field of control.subfields) {
       const fieldRect = { x: rect.x + (field.bounds.x-control.bounds.x)*zoom, y:rect.y, width:field.bounds.width*zoom, height:rect.height };
       context.beginPath();context.roundRect(fieldRect.x,fieldRect.y,fieldRect.width,fieldRect.height,3*zoom);context.fillStyle=control.linked?theme.body:theme.control;context.fill();
-      const component=typed.value[field.index]??0, full=`${field.label} ${component.toFixed(2)}`, compact=`${field.label} ${component.toFixed(0)}`;
+      const component=typed.value[field.index]??0, full=`${field.label} ${component.toFixed(3)}`, compact=component.toFixed(3);
       const label=context.measureText(full).width<=fieldRect.width-6*zoom?full:compact;
       context.fillStyle=theme.text;clippedText(context,label,fieldRect,fieldRect.x+fieldRect.width/2,rect.y+rect.height/2,2*zoom);
     }

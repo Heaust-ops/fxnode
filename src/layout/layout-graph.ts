@@ -1,7 +1,7 @@
 import type { GraphDocument, GraphNode, LinkId, NodeId, ParameterValue, SocketId, Vec2 } from "../core/types.js";
 import { GEOMETRY as G } from "./constants.js";
 import { bounds, intersects } from "./geometry.js";
-import type { LayoutControl, LayoutLink, LayoutNode, LayoutRow, LayoutScene, LayoutSnapshot, LayoutSocket, LayoutSubfield, LayoutView, Rect, ViewTransform } from "./types.js";
+import type { LayoutControl, LayoutLink, LayoutNode, LayoutNumericField, LayoutRow, LayoutScene, LayoutSnapshot, LayoutSocket, LayoutSubfield, LayoutView, Rect, ViewTransform } from "./types.js";
 import { getDescriptor } from "../catalog/registry.js";
 import type { DescriptorUiItem, ValueSchema, VisibilityExpression } from "../catalog/types.js";
 import { effectivelyMutedLinks } from "./link-mute.js";
@@ -21,6 +21,19 @@ function makeSubfields(bounds: Rect, type: ValueSchema["type"] | undefined): rea
     label,
     bounds: { x: bounds.x + index * (width + gutter), y: bounds.y, width, height: bounds.height },
   }));
+}
+function makeNumericFields(bounds: Rect, type: ValueSchema["type"] | undefined, subfields: readonly LayoutSubfield[]): readonly LayoutNumericField[] {
+  const fields = type === "number" ? [{ index: 0, bounds }] : type === "vector" || type === "color" ? subfields : [];
+  return fields.map(field => {
+    const arrow = Math.min(4, field.bounds.width * .15);
+    return {
+      component: field.index,
+      bounds: field.bounds,
+      decrement: { ...field.bounds, width: arrow },
+      value: { ...field.bounds, x: field.bounds.x + arrow, width: Math.max(0, field.bounds.width - arrow * 2) },
+      increment: { ...field.bounds, x: field.bounds.x + field.bounds.width - arrow, width: arrow },
+    };
+  });
 }
 const category = (descriptor: ReturnType<typeof getDescriptor>): LayoutNode["category"] => descriptor?.family === "compositor" ? (descriptor.role === "input" ? "compositorInput" : "compositorColor") : descriptor?.family === "geometry" ? "geometry" : descriptor?.role === "input" ? "input" : descriptor?.role === "output" ? "output" : descriptor?.typeId.includes("noise-texture") ? "texture" : descriptor?.typeId.includes("math") ? "converter" : descriptor?.family === "shader" ? "shader" : "common";
 const visible = (expression: VisibilityExpression | undefined, values: GraphNode["parameters"]): boolean => {
@@ -119,15 +132,16 @@ export function buildLayoutScene(document: GraphDocument): LayoutScene {
         const controlBounds = schema?.type === "color-ramp" ? { x: at.x + 10, y: rowBounds.y - 3, width: width - 20, height: units * G.row - 6 } : { x: at.x + width * .42, y: rowBounds.y - 3, width: width * .53, height: G.row - 6 };
         const subfields = makeSubfields(controlBounds, schema?.type);
         const rampBounds = schema?.type === "color-ramp" ? {toolbar:{x:controlBounds.x,y:controlBounds.y,width:controlBounds.width,height:20},mode:{x:controlBounds.x,y:controlBounds.y-22,width:controlBounds.width*.3,height:20},interpolation:{x:controlBounds.x+controlBounds.width*.31,y:controlBounds.y-22,width:controlBounds.width*.4,height:20},hue:{x:controlBounds.x+controlBounds.width*.72,y:controlBounds.y-22,width:controlBounds.width*.28,height:20},gradient:{x:controlBounds.x+8,y:controlBounds.y-46,width:controlBounds.width-16,height:28},handles:{x:controlBounds.x+8,y:controlBounds.y-74,width:controlBounds.width-16,height:28},selector:{x:controlBounds.x,y:controlBounds.y-104,width:controlBounds.width*.25,height:20},position:{x:controlBounds.x+controlBounds.width*.27,y:controlBounds.y-104,width:controlBounds.width*.35,height:20},color:{x:controlBounds.x+controlBounds.width*.64,y:controlBounds.y-104,width:controlBounds.width*.36,height:20}} : undefined;
-        const control: LayoutControl = { id, nodeId: node.id, source: descriptor ? "parameter" : "unknown", key: item.key, label: item.label ?? title(item.key), kind: item.kind === "resource" ? "resource" : controlKind(schema), value: node.parameters[item.key], ...(schema ? { schema } : {}), linked: false, bounds: controlBounds, subfields, ...(rampBounds?{rampBounds}:{}) };
+        const control: LayoutControl = { id, nodeId: node.id, source: descriptor ? "parameter" : "unknown", key: item.key, label: item.label ?? title(item.key), kind: item.kind === "resource" ? "resource" : controlKind(schema), value: node.parameters[item.key], ...(schema ? { schema } : {}), linked: false, bounds: controlBounds, subfields, numericFields:makeNumericFields(controlBounds,schema?.type,subfields), ...(rampBounds?{rampBounds}:{}) };
         controls.set(id, control);
         rows.push({ kind: "control", controlId: id, units, bounds: rowBounds });
       } else if (item.kind === "grading-pair") {
         const scalarSchema=descriptor?.parameters[item.scalar],colorSchema=descriptor?.parameters[item.color];
         const scalarId=`${node.id}:parameter:${item.scalar}`,colorId=`${node.id}:parameter:${item.color}`;
         const scalarBounds={x:at.x+width*.28,y:rowBounds.y-3,width:width*.20,height:G.row-6},colorBounds={x:at.x+width*.50,y:rowBounds.y-3,width:width*.45,height:G.row-6};
-        controls.set(scalarId,{id:scalarId,nodeId:node.id,source:"parameter",key:item.scalar,label:item.label,kind:controlKind(scalarSchema),value:node.parameters[item.scalar],...(scalarSchema?{schema:scalarSchema}:{}),linked:false,bounds:scalarBounds,subfields:[]});
-        controls.set(colorId,{id:colorId,nodeId:node.id,source:"parameter",key:item.color,label:item.label,kind:controlKind(colorSchema),value:node.parameters[item.color],...(colorSchema?{schema:colorSchema}:{}),linked:false,bounds:colorBounds,subfields:makeSubfields(colorBounds,colorSchema?.type)});
+        const colorSubfields=makeSubfields(colorBounds,colorSchema?.type);
+        controls.set(scalarId,{id:scalarId,nodeId:node.id,source:"parameter",key:item.scalar,label:item.label,kind:controlKind(scalarSchema),value:node.parameters[item.scalar],...(scalarSchema?{schema:scalarSchema}:{}),linked:false,bounds:scalarBounds,subfields:[],numericFields:makeNumericFields(scalarBounds,scalarSchema?.type,[])});
+        controls.set(colorId,{id:colorId,nodeId:node.id,source:"parameter",key:item.color,label:item.label,kind:controlKind(colorSchema),value:node.parameters[item.color],...(colorSchema?{schema:colorSchema}:{}),linked:false,bounds:colorBounds,subfields:colorSubfields,numericFields:makeNumericFields(colorBounds,colorSchema?.type,colorSubfields)});
         rows.push({kind:"grading-pair",label:item.label,scalarControlId:scalarId,colorControlId:colorId,units:1,bounds:rowBounds});
       } else if (item.kind === "socket") {
         const raw = node.sockets.find(socket => socket.key === item.key);
@@ -138,7 +152,8 @@ export function buildLayoutScene(document: GraphDocument): LayoutScene {
         if (schema && socket.direction === "input") {
           controlId = `${node.id}:socket:${socket.id}`;
           const controlBounds = { x: at.x + width * .42, y: rowBounds.y - 3, width: width * .53, height: G.row - 6 };
-          controls.set(controlId, { id: controlId, nodeId: node.id, source: "socket-default", key: socket.id, label: item.label ?? socket.label, kind: controlKind(schema), value: raw.defaultValue, schema, linked: socket.linked, bounds: controlBounds, subfields: makeSubfields(controlBounds, schema.type) });
+          const subfields=makeSubfields(controlBounds,schema.type);
+          controls.set(controlId, { id: controlId, nodeId: node.id, source: "socket-default", key: socket.id, label: item.label ?? socket.label, kind: controlKind(schema), value: raw.defaultValue, schema, linked: socket.linked, bounds: controlBounds, subfields, numericFields:makeNumericFields(controlBounds,schema.type,subfields) });
         }
         rows.push({ kind: "socket", socketId: socket.id, ...(controlId ? { controlId } : {}), units: 1, bounds: rowBounds });
       }

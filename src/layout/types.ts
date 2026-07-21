@@ -31,6 +31,13 @@ export interface LayoutSubfield {
   readonly label: "X" | "Y" | "Z" | "R" | "G" | "B" | "A";
   readonly bounds: Rect;
 }
+export interface LayoutNumericField {
+  readonly component: number;
+  readonly bounds: Rect;
+  readonly value: Rect;
+  readonly decrement: Rect;
+  readonly increment: Rect;
+}
 export interface LayoutControl {
   readonly id: string;
   readonly nodeId: NodeId;
@@ -43,6 +50,8 @@ export interface LayoutControl {
   readonly linked: boolean;
   readonly bounds: Rect;
   readonly subfields: readonly LayoutSubfield[];
+  /** Authoritative numeric value and step-button geometry, in world coordinates. */
+  readonly numericFields: readonly LayoutNumericField[];
   /** Authoritative Color Ramp sub-control geometry, in world coordinates. */
   readonly rampBounds?: { readonly toolbar: Rect; readonly mode: Rect; readonly interpolation: Rect; readonly hue: Rect; readonly gradient: Rect; readonly handles: Rect; readonly selector: Rect; readonly position: Rect; readonly color: Rect };
 }

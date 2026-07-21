@@ -10,7 +10,7 @@ const CONTROL_COORDS = Object.freeze({
   value: { x: 196, y: 147 },
   mathOperation: { x: 473, y: 147 }, mathClamp: { x: 473, y: 171 },
   mathA: { x: 473, y: 195 }, mathB: { x: 473, y: 219 },
-  vectorOperation: { x: 750, y: 147 }, vectorAX: { x: 711, y: 171 }, vectorAY: { x: 737, y: 171 },
+  vectorOperation: { x: 750, y: 147 }, vectorAX: { x: 716, y: 171 }, vectorAY: { x: 750, y: 171 },
   colorR: { x: 968, y: 147 }, colorG: { x: 988, y: 147 },
   groupString: { x: 623, y: 456 },
 } satisfies Record<string, Point>);
@@ -52,6 +52,15 @@ test("number scrub is transient, atomic, cancellable, precise and snapping", asy
   const shiftStart = await state(p), shiftedRelease = await scrub(p, CONTROL_COORDS.value, 30, { shift: true }); await shiftedRelease(); const shifted = await state(p); invariant(shiftStart, shifted, 1);
   expect((value(shifted.layout, "value", "value") as { value: number }).value - 3).toBeLessThan(3);
   const ctrlStart = await state(p), ctrlRelease = await scrub(p, CONTROL_COORDS.value, 37, { control: true }); await ctrlRelease(); const snapped = await state(p); invariant(ctrlStart, snapped, 1); expect(Number.isInteger((value(snapped.layout, "value", "value") as { value: number }).value)).toBe(true);
+});
+
+test("numeric fields support typed assignment, cancellation, clamping and step arrows",async({page})=>{
+  const p=await open(page),canvas=p.locator("#controls"),a=await state(p);
+  await canvas.click({position:CONTROL_COORDS.value});await p.keyboard.type("0.375");await p.keyboard.press("Enter");const b=await state(p);invariant(a,b,1);expect(value(b.layout,"value","value")).toEqual({kind:"number",value:.375});
+  await canvas.click({position:CONTROL_COORDS.value});await p.keyboard.type("999");await p.keyboard.press("Enter");const clamped=await state(p);invariant(b,clamped,1);expect(value(clamped.layout,"value","value")).toEqual({kind:"number",value:999});
+  await canvas.click({position:CONTROL_COORDS.value});await p.keyboard.type("bad");await p.keyboard.press("Enter");invariant(clamped,await state(p),0);await p.keyboard.press("Escape");
+  await canvas.click({position:{x:231,y:147}});const stepped=await state(p);invariant(clamped,stepped,1);expect(value(stepped.layout,"value","value")).toEqual({kind:"number",value:1000});
+  await canvas.click({position:{x:161,y:147}});const decremented=await state(p);invariant(stepped,decremented,1);expect(value(decremented.layout,"value","value")).toEqual({kind:"number",value:999});
 });
 
 test("vector and color component scrubs commit only selected components", async ({ page }) => {

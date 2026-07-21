@@ -52,6 +52,7 @@ class FxNodeClient implements FxNode {
   private readonly barriers = new Map<number, Barrier[]>();
   private readonly copies = new Map<number, Set<HTMLCanvasElement>>();
   private readonly mirrors = new Set<HTMLCanvasElement>();
+  private readonly contexts = new WeakMap<HTMLCanvasElement, CanvasRenderingContext2D>();
   private readonly mutations = new Set<(event: MutationEnvelope) => void>();
   private readonly snapshots = new Set<(event: SnapshotEnvelope) => void>();
   private readonly observer: ResizeObserver;
@@ -126,9 +127,12 @@ class FxNodeClient implements FxNode {
     }
   }
   private draw(target: HTMLCanvasElement, bitmap: ImageBitmap): void {
-    const context = target.getContext("2d");
+    const context = this.contexts.get(target) ?? target.getContext("2d");
     if (!context) throw new FxNodeCapabilityError("Canvas 2D context is unavailable", "canvas.2d");
-    target.width = bitmap.width; target.height = bitmap.height; context.drawImage(bitmap, 0, 0);
+    this.contexts.set(target, context);
+    if (target.width !== bitmap.width) target.width = bitmap.width;
+    if (target.height !== bitmap.height) target.height = bitmap.height;
+    context.drawImage(bitmap, 0, 0);
   }
   private rejectBarrier(id: number, error: unknown): void { for (const item of this.barriers.get(id) ?? []) item.reject(error); this.barriers.delete(id); }
   private size = () => ({ width: Math.min(8192, this.canvas.clientWidth || this.canvas.width || 1), height: Math.min(8192, this.canvas.clientHeight || this.canvas.height || 1), dpr: Math.min(4, window.devicePixelRatio || 1) });

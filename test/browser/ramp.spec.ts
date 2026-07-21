@@ -41,9 +41,14 @@ test("handle drag previews pixels, commits once, and Escape/RMB cancel", async (
   const cancelRmb = await drag(page, { ...P.firstHandle, x: 386 + 45 }, -25); await page.mouse.down({ button: "right" }); await page.mouse.up({ button: "right" }); await cancelRmb(); pairs(b, await state(page), 0);
 });
 
-test("Ctrl-LMB gradient insert is one transiently-active commit and undo removes it", async ({ page }) => {
-  const canvas = await open(page), a = await state(page); await canvas.click({ position: P.gradient, modifiers: ["Control"] }); const b = await state(page); pairs(a, b, 1); expect(ramp(b).stops).toHaveLength(4); expect(ramp(b).stops.filter(s => !ramp(a).stops.some(old => old.id === s.id))).toHaveLength(1);
+test("plain gradient click inserts one transiently-active stop and undo removes it", async ({ page }) => {
+  const canvas = await open(page), a = await state(page); await canvas.click({ position: P.gradient }); const b = await state(page); pairs(a, b, 1); expect(ramp(b).stops).toHaveLength(4); expect(ramp(b).stops.filter(s => !ramp(a).stops.some(old => old.id === s.id))).toHaveLength(1);
   expect(JSON.stringify(b.layout)).not.toContain("activeRamp"); expect(JSON.stringify(b.snapshot)).not.toContain("activeRamp"); await undo(page); const c = await state(page); pairs(b, c, 1); expect(ramp(c)).toEqual(ramp(a));
+});
+
+test("transparent gradient checker is clipped to its exact bounds",async({page})=>{
+  const canvas=await open(page);const pixels=await canvas.evaluate((element)=>{const context=(element as HTMLCanvasElement).getContext("2d")!;return{x:Array.from(context.getImageData(643,240,1,1).data),y:Array.from(context.getImageData(500,260,1,1).data)};});
+  for(const pixel of [pixels.x,pixels.y]){expect(pixel[3]).toBe(255);expect(pixel.slice(0,3)).not.toEqual([119,119,119]);expect(pixel.slice(0,3)).not.toEqual([170,170,170]);}
 });
 
 test("toolbar add/remove commits atomically and enforces two stops; shortcuts stay scoped", async ({ page }) => {
