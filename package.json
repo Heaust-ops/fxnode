@@ -31,7 +31,7 @@
     "test:browser": "playwright test --config playwright.config.ts",
     "test:visual": "playwright test --config playwright.visual.config.ts",
     "test:visual:update": "playwright test --grep @visual --update-snapshots",
-    "example": "vite --host 127.0.0.1",
+    "example": "vite example --host 127.0.0.1",
     "build": "vite build && tsc -p tsconfig.build.json",
     "check:package": "tsx tools/check-package.ts",
     "release:check": "npm run check && npm run test:browser && npm run test:visual && npm run check:package",
