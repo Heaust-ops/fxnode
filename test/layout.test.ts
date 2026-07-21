@@ -62,6 +62,7 @@ test("transient node order controls overlapping paint and hit order",()=>{
   const a=materializeNode("a","fxnode.shader.value",{x:0,y:0}),b=materializeNode("b","fxnode.shader.value",{x:0,y:0}),doc={schemaVersion:1,graphId:"z",catalogVersion:1,nodes:{a,b},links:{},metadata:{}} as unknown as Parameters<typeof layoutGraph>[0];
   const original=layoutGraph(doc,{...transform,zoom:1}),raised=applyNodeOrder(original,[nodeId("b"),nodeId("a")]),point=worldToView({x:20,y:-20},raised.transform);
   assert.deepEqual(raised.drawOrder.slice(-2),[nodeId("b"),nodeId("a")]);assert.deepEqual(hitTest(raised,point),{kind:"node",id:nodeId("a")});
+  const shifted={...b,position:{x:30,y:0}},overlap=applyNodeOrder(layoutGraph({...doc,nodes:{a,b:shifted}},{...transform,zoom:1}),[nodeId("a"),nodeId("b")]);assert.deepEqual(hitTest(overlap,worldToView({x:80,y:-36},overlap.transform)),{kind:"node",id:nodeId("b")});
 });
 test("reroute core starts links while its outer halo selects the node",()=>{
   const reroute=materializeNode("r","fxnode.common.reroute",{x:0,y:0}),doc={schemaVersion:1,graphId:"reroute",catalogVersion:1,nodes:{r:reroute},links:{},metadata:{}} as unknown as Parameters<typeof layoutGraph>[0],layout=layoutGraph(doc,{...transform,zoom:1}),node=layout.nodes.get(nodeId("r"))!,center=worldToView({x:node.bounds.x+5,y:node.bounds.y-5},layout.transform);
@@ -84,6 +85,7 @@ test("Color Balance owns three disjoint Blender-style grading wheels",()=>{
   assert.ok(row&&row.kind==="grading-wheels");assert.deepEqual(row.wheels.map(wheel=>wheel.label),["Lift","Gamma","Gain"]);assert.ok(placed.minimumSize.x>=400);assert.equal(row.units,7);
   for(const wheel of row.wheels){const color=layout.controls.get(wheel.colorControlId)!,scalar=layout.controls.get(wheel.scalarControlId)!,bounds=color.colorWheelBounds!;assert.equal(bounds.plane.width,bounds.plane.height);assert.ok(bounds.lightness.x>=bounds.plane.x+bounds.plane.width);for(const [region,rect] of Object.entries(bounds) as ["plane"|"lightness",typeof bounds.plane][])assert.deepEqual(hitTest(layout,worldToView({x:rect.x+rect.width/2,y:rect.y-rect.height/2},layout.transform)),{kind:"color-wheel",id:color.id,region});assert.equal(hitTest(layout,worldToView({x:scalar.bounds.x+scalar.bounds.width/2,y:scalar.bounds.y-scalar.bounds.height/2},layout.transform)).kind,"control");}
   for(let i=1;i<row.wheels.length;i++){const prior=layout.controls.get(row.wheels[i-1]!.colorControlId)!.bounds,next=layout.controls.get(row.wheels[i]!.colorControlId)!.bounds;assert.ok(next.x>=prior.x+prior.width);}
+  const collapsed=layoutGraph({...doc,nodes:{balance:{...node,collapsed:true}}},{...transform,zoom:1}).nodes.get(nodeId("balance"))!;assert.equal(collapsed.bounds.width,placed.bounds.width);assert.equal(collapsed.bounds.height,24);
 });
 
 test("compound and component controls have bounded, disjoint layout cells",()=>{

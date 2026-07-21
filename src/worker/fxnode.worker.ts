@@ -58,6 +58,8 @@ const scheduler = new RenderScheduler((frameId,renderId) => {
 function fatal(error: unknown, code = "worker.fatal"): void { post({ protocol: 1, type: "fatal", error: { code, message: error instanceof Error ? error.message : "Worker failure" } }); scope.close(); }
 function commit(result: Extract<ReturnType<typeof transition>, { status: "committed" }>): void {
   seedCollapseAnimations(result.mutationEnvelope.mutations,performance.now());
+  const added=result.mutationEnvelope.mutations.flatMap(mutation=>mutation.kind==="node.set"&&!mutation.before&&mutation.after?[mutation.id]:[]),latest=added.at(-1);
+  if(latest){session.selectedNodes=new Set([latest]);session.selectedLinks.clear();session.activeNode=latest;raiseNode(latest);}
   layoutStore?.rebuild(result.state.document);
   pruneSession();
   post({ protocol: 1, type: "mutation", envelope: result.mutationEnvelope });

@@ -169,15 +169,15 @@ class FxNodeClient implements FxNode {
       wire = { kind: "pointer", phase, pointerId: event.pointerId, pointerType: event.pointerType, position: { x: event.clientX - rect.left, y: event.clientY - rect.top }, button: event.button, buttons: event.buttons, modifiers: mods(event) };
       if (phase === "down") { this.canvas.focus(); this.canvas.setPointerCapture(event.pointerId); }
       if (phase === "up" && this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
+    } else if (event instanceof WheelEvent) {
+      const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? Math.max(1, rect.height) : 1;
+      wire = { kind: "wheel", position: { x: event.clientX - rect.left, y: event.clientY - rect.top }, delta: { x: event.deltaX * scale, y: event.deltaY * scale }, modifiers: mods(event) }; event.preventDefault();
     } else if (event instanceof MouseEvent) {
       // Pointer Events do not emit a second pointerdown when RMB is pressed
       // while LMB is held. Forward that chord so in-progress gestures can use
       // the conventional secondary-button cancellation.
       if (event.button !== 2 || (event.buttons & 1) === 0) return;
       wire = { kind: "pointer", phase: "down", pointerId: 1, pointerType: "mouse", position: { x: event.clientX - rect.left, y: event.clientY - rect.top }, button: event.button, buttons: event.buttons, modifiers: mods(event) };
-    } else if (event instanceof WheelEvent) {
-      const scale = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? Math.max(1, rect.height) : 1;
-      wire = { kind: "wheel", position: { x: event.clientX - rect.left, y: event.clientY - rect.top }, delta: { x: event.deltaX * scale, y: event.deltaY * scale }, modifiers: mods(event) }; event.preventDefault();
     } else if (event instanceof KeyboardEvent) {
       wire = { kind: "key", phase: event.type === "keydown" ? "down" : "up", key: event.key, code: event.code, repeat: event.repeat, modifiers: mods(event) };
     } else wire = { kind: "focus", phase: event.type === "focus" ? "focus" : "blur" };

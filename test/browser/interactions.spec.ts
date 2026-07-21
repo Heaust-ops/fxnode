@@ -26,3 +26,10 @@ test("non-isolated hosts retain the ordered pointer message fallback",async({pag
   expect((await page.evaluate(()=>window.fxnodeExample.api!.snapshot())).nodes.find(node=>node.id==="math")?.position).toEqual({x:-270,y:150});
   expect(await page.evaluate(()=>(window as typeof window&{pointerMoveMessages:number}).pointerMoveMessages)).toBeGreaterThan(0);
 });
+
+test("wheel input visibly zooms around the pointer without changing graph state",async({page})=>{
+  await page.addInitScript(()=>{const NativeWorker=window.Worker;let wheels=0;class TrackedWorker extends NativeWorker{override postMessage(message:unknown,transfer:Transferable[]):void;override postMessage(message:unknown,options?:StructuredSerializeOptions):void;override postMessage(message:unknown,transferOrOptions?:Transferable[]|StructuredSerializeOptions):void{if(typeof message==="object"&&message!==null&&(message as {type?:unknown}).type==="input"&&(message as {event?:{kind?:unknown}}).event?.kind==="wheel")wheels++;if(Array.isArray(transferOrOptions))super.postMessage(message,transferOrOptions);else super.postMessage(message,transferOrOptions);}}Object.defineProperty(window,"Worker",{value:TrackedWorker});Object.defineProperty(window,"wheelMessages",{get:()=>wheels});});
+  await page.goto("/example/");await page.evaluate(()=>window.fxnodeExample.ready);const canvas=page.locator("#graph"),before=await canvas.screenshot(),version=(await page.evaluate(()=>window.fxnodeExample.api!.snapshot())).version;
+  await canvas.hover({position:{x:400,y:240}});await page.mouse.wheel(0,-240);await expect.poll(()=>page.evaluate(()=>(window as typeof window&{wheelMessages:number}).wheelMessages)).toBe(1);await page.evaluate(()=>window.fxnodeExample.api!.whenRendered());const zoomed=await canvas.screenshot();expect(zoomed.equals(before)).toBe(false);expect((await page.evaluate(()=>window.fxnodeExample.api!.snapshot())).version).toBe(version);
+  await page.mouse.wheel(0,240);await page.evaluate(()=>window.fxnodeExample.api!.whenRendered());expect((await canvas.screenshot()).equals(zoomed)).toBe(false);
+});

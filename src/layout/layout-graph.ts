@@ -95,9 +95,10 @@ export function buildLayoutScene(document: GraphDocument): LayoutScene {
       ...Object.keys(node.parameters).sort().map(key => ({ kind: "parameter" as const, key })),
       ...node.sockets.map(socket => ({ kind: "socket" as const, key: socket.key })),
     ];
-    const visibleItems = kind === "node" && !node.collapsed
+    const expandedItems = kind === "node"
       ? ui.filter(item => visible(item.visibleWhen, node.parameters)).filter(item => item.kind !== "socket" || visibleSockets.some(socket => socket.key === item.key))
       : [];
+    const visibleItems = node.collapsed ? [] : expandedItems;
     const contentHeight = kind === "frame"
       ? node.size.y
       : kind === "reroute"
@@ -105,7 +106,7 @@ export function buildLayoutScene(document: GraphDocument): LayoutScene {
       : node.collapsed
         ? G.header
         : G.header + visibleItems.reduce((sum, item) => sum+uiItemUnits(item,descriptor), 0) * G.row + G.gap;
-    const minimumSize={x:kind==="reroute"?G.reroute*2:kind==="frame"?G.minWidth:minimumNodeWidth(descriptor,node,visibleItems),y:contentHeight};
+    const minimumSize={x:kind==="reroute"?G.reroute*2:kind==="frame"?G.minWidth:minimumNodeWidth(descriptor,node,expandedItems),y:contentHeight};
     const width = kind === "reroute" ? G.reroute * 2 : kind==="frame"?node.size.x:Math.min(G.maxWidth,Math.max(minimumSize.x,node.size.x));
     const height=kind==="node"&&!node.collapsed?Math.max(contentHeight,node.size.y):contentHeight;
     const nodeBounds = { x: at.x, y: at.y, width, height };
