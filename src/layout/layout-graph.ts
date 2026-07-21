@@ -28,7 +28,7 @@ function minimumNodeWidth(descriptor:ReturnType<typeof getDescriptor>,node:Graph
   }
   return Math.min(G.maxWidth,Math.ceil(width));
 }
-const uiItemUnits=(item:DescriptorUiItem,descriptor:ReturnType<typeof getDescriptor>)=>item.kind==="header"?2:item.kind==="grading-wheels"?7:(item.kind==="parameter"||item.kind==="resource")&&descriptor?.parameters[item.key]?.type==="color-ramp"?8:1;
+const uiItemUnits=(item:DescriptorUiItem,descriptor:ReturnType<typeof getDescriptor>)=>item.kind==="header"?2:item.kind==="grading-wheels"?7:item.kind==="resource"?4:(item.kind==="parameter"&&descriptor?.parameters[item.key]?.type==="color-ramp")?8:1;
 function controlKind(schema: ValueSchema | undefined): LayoutControl["kind"] {
   if (!schema) return "readonly-json";
   if (schema.type === "string" && schema.enum) return "enum";
@@ -157,7 +157,8 @@ export function buildLayoutScene(document: GraphDocument): LayoutScene {
         const controlBounds = schema?.type === "color-ramp" || schema?.type === "number" ? { x: at.x + 10, y: rowBounds.y - 3, width: width - 20, height: schema.type === "color-ramp" ? units * G.row - 6 : G.row - 6 } : { x: at.x + width * .42, y: rowBounds.y - 3, width: width * .53, height: G.row - 6 };
         const subfields = makeSubfields(controlBounds, schema?.type);
         const rampBounds = schema?.type === "color-ramp" ? {toolbar:{x:controlBounds.x,y:controlBounds.y,width:controlBounds.width,height:20},mode:{x:controlBounds.x,y:controlBounds.y-22,width:controlBounds.width*.3,height:20},interpolation:{x:controlBounds.x+controlBounds.width*.31,y:controlBounds.y-22,width:controlBounds.width*.4,height:20},hue:{x:controlBounds.x+controlBounds.width*.72,y:controlBounds.y-22,width:controlBounds.width*.28,height:20},gradient:{x:controlBounds.x+8,y:controlBounds.y-46,width:controlBounds.width-16,height:28},handles:{x:controlBounds.x+8,y:controlBounds.y-74,width:controlBounds.width-16,height:28},selector:{x:controlBounds.x,y:controlBounds.y-104,width:controlBounds.width*.25,height:20},position:{x:controlBounds.x+controlBounds.width*.27,y:controlBounds.y-104,width:controlBounds.width*.35,height:20},color:{x:controlBounds.x,y:controlBounds.y-126,width:controlBounds.width,height:20}} : undefined;
-        const control: LayoutControl = { id, nodeId: node.id, source: descriptor ? "parameter" : "unknown", key: item.key, label: item.label ?? title(item.key), kind: item.kind === "resource" ? "resource" : controlKind(schema), value: node.parameters[item.key], ...(schema ? { schema } : {}), linked: false, bounds: controlBounds, subfields, numericFields:makeNumericFields(controlBounds,schema,subfields), ...(rampBounds?{rampBounds}:{}) };
+        const resourceBounds=item.kind==="resource"?{preview:{x:at.x+10,y:rowBounds.y-4,width:width-20,height:units*G.row-34},open:{x:at.x+10,y:rowBounds.y-units*G.row+26,width:width-20,height:22}}:undefined;
+        const control: LayoutControl = { id, nodeId: node.id, source: descriptor ? "parameter" : "unknown", key: item.key, label: item.label ?? title(item.key), kind: item.kind === "resource" ? "resource" : controlKind(schema), value: node.parameters[item.key], ...(schema ? { schema } : {}), linked: false, bounds:item.kind==="resource"?resourceBounds!.open:controlBounds, subfields, numericFields:makeNumericFields(controlBounds,schema,subfields), ...(rampBounds?{rampBounds}:{}),...(resourceBounds?{resourceBounds}:{}) };
         controls.set(id, control);
         rows.push({ kind: "control", controlId: id, units, bounds: rowBounds });
       } else if (item.kind === "grading-wheels") {

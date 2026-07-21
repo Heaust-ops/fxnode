@@ -14,7 +14,7 @@ export interface ViewTransform {
   readonly dpr: number;
 }
 /** View-space (+Y down) modal color-picker geometry. */
-export interface ColorPickerLayout { readonly bounds:Rect;readonly plane:Rect;readonly lightness:Rect;readonly alpha:Rect }
+export interface ColorPickerLayout { readonly bounds:Rect;readonly confirm:Rect;readonly plane:Rect;readonly lightness:Rect;readonly alpha:Rect;readonly rgba:readonly [Rect,Rect,Rect,Rect];readonly hsv:readonly [Rect,Rect,Rect];readonly hex:Rect }
 export interface LayoutSocket {
   readonly id: SocketId;
   readonly nodeId: NodeId;
@@ -60,6 +60,8 @@ export interface LayoutControl {
   readonly rampBounds?: { readonly toolbar: Rect; readonly mode: Rect; readonly interpolation: Rect; readonly hue: Rect; readonly gradient: Rect; readonly handles: Rect; readonly selector: Rect; readonly position: Rect; readonly color: Rect };
   /** Authoritative inline Oklch grading-wheel geometry, in world coordinates. */
   readonly colorWheelBounds?: {readonly plane:Rect;readonly lightness:Rect};
+  /** Resource thumbnail and chooser button geometry, in world coordinates. */
+  readonly resourceBounds?: {readonly preview:Rect;readonly open:Rect};
 }
 export type LayoutRow =
   | { readonly kind: "control"; readonly controlId: string; readonly units: number; readonly bounds: Rect }

@@ -1,7 +1,7 @@
 import type { Command } from "../commands/types.js";
 import type { GraphLayoutV2, GraphSnapshot } from "../core/types.js";
 import type { MutationEnvelope, SnapshotEnvelope } from "../engine/engine.js";
-import { validWorkerMessage, type InputEventWire, type PointerFence, type VersionExpectation, type WorkerRequest } from "./protocol.js";
+import { validWorkerMessage, type HostInteractionSnapshot, type InputEventWire, type PointerFence, type VersionExpectation, type WorkerRequest } from "./protocol.js";
 import { advancePointerLaneFence, createPointerLane, publishPointerMove, supportsPointerLane, type PointerLaneSnapshot, type PointerMoveWire } from "./pointer-lane.js";
 import { createAddNodeMenu, type AddNodeMenu } from "./add-node-menu.js";
 import type { BuiltinNodeTypeId } from "../catalog/scope.js";
@@ -63,6 +63,10 @@ class FxNodeClient implements FxNode {
   private lanePointerId: number | undefined;
   private pendingNodeMenuRequestId: string | undefined;
   private readonly addNodeMenu: AddNodeMenu;
+  private readonly fileInput:HTMLInputElement;
+  private resourceToken:string|undefined;
+  private host:HostInteractionSnapshot={colorPickerOpen:false,actions:[]};
+  private readonly suppressedResourcePointers=new Set<number>();
 
   constructor(private readonly canvas: HTMLCanvasElement, private readonly worker: Worker, private readonly pointerLane?: SharedArrayBuffer) {
     this.originalTabIndex = canvas.getAttribute("tabindex");
@@ -74,6 +78,8 @@ class FxNodeClient implements FxNode {
     window.addEventListener("resize", this.viewport);
     for (const name of INPUT_EVENTS) canvas.addEventListener(name, this.input, { passive: name !== "wheel" });
     canvas.addEventListener("contextmenu", this.preventContextMenu);
+    this.fileInput=document.createElement("input");this.fileInput.type="file";this.fileInput.accept="image/*";this.fileInput.hidden=true;this.fileInput.addEventListener("change",this.resourceSelected);document.body.append(this.fileInput);
+    document.addEventListener("pointerdown",this.outsidePointer,true);
     this.addNodeMenu=createAddNodeMenu(canvas,(typeId,viewPosition)=>this.addNodeAt(typeId,viewPosition));
     worker.onmessage = this.onMessage;
     worker.onerror = () => this.shutdown(new FxNodeCapabilityError("The FxNode module worker failed to load. Check workerUrl, CSP worker-src, URL accessibility, and JavaScript MIME type.", "worker.load"));
@@ -120,6 +126,7 @@ class FxNodeClient implements FxNode {
       for (const target of targets) try { this.draw(target, data.bitmap); } catch (error) { this.rejectBarrier(id, error); }
       this.copies.delete(id);
     }
+    this.host=data.host;
     this.safePost({ protocol: 1, type: "frame.consumed", frameId: data.frameId });
     for (const [id, list] of [...this.barriers]) if (id <= data.renderId) {
       for (const item of list) primaryError ? item.reject(primaryError) : item.resolve();
@@ -137,15 +144,15 @@ class FxNodeClient implements FxNode {
   private rejectBarrier(id: number, error: unknown): void { for (const item of this.barriers.get(id) ?? []) item.reject(error); this.barriers.delete(id); }
   private size = () => ({ width: Math.min(8192, this.canvas.clientWidth || this.canvas.width || 1), height: Math.min(8192, this.canvas.clientHeight || this.canvas.height || 1), dpr: Math.min(4, window.devicePixelRatio || 1) });
   private readonly viewport = (): void => { this.pendingNodeMenuRequestId=undefined;this.addNodeMenu.close(false);if (!this.terminalError && this.flushPointerLane()) { this.renderId++; this.requiredPost({ protocol: 1, type: "viewport", viewport: this.size(), renderId: this.renderId }); } };
-  private safePost(message: WorkerRequest): boolean { try { this.worker.postMessage(message); return true; } catch { return false; } }
+  private safePost(message: WorkerRequest,transfer:Transferable[]=[]): boolean { try { this.worker.postMessage(message,transfer); return true; } catch { return false; } }
   private requiredPost(message: WorkerRequest): boolean { if(this.safePost(message))return true;this.shutdown(new FxNodeProtocolError("Unable to send a message to the FxNode worker"));return false; }
-  private post<T>(message: RpcRequest): Promise<T> {
+  private post<T>(message: RpcRequest,transfer:Transferable[]=[]): Promise<T> {
     if (this.terminalError) return Promise.reject(this.terminalError);
     if ((message.type === "command" || message.type === "load") && !this.flushPointerLane()) return Promise.reject(this.terminalError!);
     const id = crypto.randomUUID();
     return new Promise<T>((resolve, reject) => {
       this.pending.set(id, { resolve: value => resolve(value as T), reject });
-      try { this.worker.postMessage({ protocol: 1, id, ...message }); }
+      try { this.worker.postMessage({ protocol: 1, id, ...message },transfer); }
       catch (error) { this.pending.delete(id); reject(error); }
     });
   }
@@ -158,6 +165,9 @@ class FxNodeClient implements FxNode {
     return new Promise((resolve, reject) => this.barriers.set(id, [...this.barriers.get(id) ?? [], { resolve, reject }]));
   }
   private readonly preventContextMenu = (event: Event): void => event.preventDefault();
+  private readonly outsidePointer=(event:PointerEvent):void=>{if(!this.terminalError&&this.host.colorPickerOpen&&event.button===0&&event.target!==this.canvas&&!this.canvas.contains(event.target as Node))this.sendInput({kind:"outside-pointer",button:0});};
+  private readonly resourceSelected=():void=>{const file=this.fileInput.files?.[0],token=this.resourceToken;this.resourceToken=undefined;if(!file||!token)return;void file.arrayBuffer().then(bytes=>this.post({type:"resource.set",token,name:file.name,mime:file.type,bytes},[bytes])).catch(error=>console.error("FxNode image selection failed",error));};
+  private openResource(token:string,pointerId:number):void{this.resourceToken=token;this.suppressedResourcePointers.add(pointerId);this.fileInput.value="";this.fileInput.click();}
   private readonly input = (event: Event): void => {
     if (this.terminalError) return;
     if(event instanceof PointerEvent&&event.type==="pointerdown"||event instanceof WheelEvent||event instanceof KeyboardEvent){this.pendingNodeMenuRequestId=undefined;this.addNodeMenu.close(false);}
@@ -166,6 +176,8 @@ class FxNodeClient implements FxNode {
     let wire: InputEventWire;
     if (event instanceof PointerEvent) {
       const phase = event.type === "pointerdown" ? "down" : event.type === "pointermove" ? "move" : event.type === "pointerup" ? "up" : "cancel";
+      if(this.suppressedResourcePointers.has(event.pointerId)){if(phase==="up"||phase==="cancel")this.suppressedResourcePointers.delete(event.pointerId);return;}
+      if(phase==="down"&&event.button===0&&!this.host.colorPickerOpen){const position={x:event.clientX-rect.left,y:event.clientY-rect.top},action=this.host.actions.find(item=>position.x>=item.bounds.x&&position.x<=item.bounds.x+item.bounds.width&&position.y>=item.bounds.y&&position.y<=item.bounds.y+item.bounds.height);if(action){this.openResource(action.token,event.pointerId);return;}}
       wire = { kind: "pointer", phase, pointerId: event.pointerId, pointerType: event.pointerType, position: { x: event.clientX - rect.left, y: event.clientY - rect.top }, button: event.button, buttons: event.buttons, modifiers: mods(event) };
       if (phase === "down") { this.canvas.focus(); this.canvas.setPointerCapture(event.pointerId); }
       if (phase === "up" && this.canvas.hasPointerCapture(event.pointerId)) this.canvas.releasePointerCapture(event.pointerId);
@@ -233,6 +245,7 @@ class FxNodeClient implements FxNode {
     this.observer.disconnect(); window.removeEventListener("resize", this.viewport);
     for (const name of INPUT_EVENTS) this.canvas.removeEventListener(name, this.input);
     this.canvas.removeEventListener("contextmenu", this.preventContextMenu);
+    document.removeEventListener("pointerdown",this.outsidePointer,true);this.fileInput.removeEventListener("change",this.resourceSelected);this.fileInput.remove();this.resourceToken=undefined;this.suppressedResourcePointers.clear();this.host={colorPickerOpen:false,actions:[]};
     this.addNodeMenu.destroy();this.pendingNodeMenuRequestId=undefined;
     if (this.originalTabIndex === null) this.canvas.removeAttribute("tabindex"); else this.canvas.setAttribute("tabindex", this.originalTabIndex);
     this.canvas.style.touchAction = this.originalTouchAction;

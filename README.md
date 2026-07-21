@@ -242,6 +242,12 @@ await editor.dispatch(
 );
 ```
 
+### Local image resources
+
+The Image Texture and compositor Image controls open the browser's image file chooser directly from the canvas. The browser transfers the selected bytes to the worker, where fxnode decodes the image, keeps a bounded `ImageBitmap` cache, renders an aspect-fit thumbnail, and commits one ordinary versioned parameter mutation. The file bridge holds only frame-synchronized hit geometry and an opaque resource token; it does not mirror graph state on the main thread.
+
+Saved graphs contain a serializable local image reference and filename, not embedded image bytes or a data URL. Undo/redo can reuse a still-cached thumbnail. Loading the save in a fresh editor preserves the reference but displays an unavailable/reopen placeholder until the user selects the local file again. This keeps mutation, history, and save payloads small and avoids silently persisting user files.
+
 ## Observe committed updates
 
 fxnode exposes concrete graph changes at two levels. Both event streams are emitted for the same commit version, with the fine-grained mutation event emitted first.

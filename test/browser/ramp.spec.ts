@@ -70,13 +70,13 @@ test("active stop swatch opens an Oklch picker with transient preview and atomic
   const canvas=await open(page),before=await state(page);await canvas.click({position:P.swatch});
   const box=await canvas.boundingBox();if(!box)throw new Error("Canvas missing");
   await page.mouse.move(box.x+756,box.y+409);await page.mouse.down();await page.mouse.move(box.x+816,box.y+409,{steps:4});
-  pairs(before,await state(page),0);await page.mouse.up();const committed=await state(page);pairs(before,committed,1);expect(ramp(committed).stops[0]!.color).not.toEqual(ramp(before).stops[0]!.color);
-  await canvas.click({position:P.swatch});await page.mouse.move(box.x+756,box.y+409);await page.mouse.down();await page.mouse.move(box.x+776,box.y+372);await canvas.press("Escape");await page.mouse.up();pairs(committed,await state(page),0);
+  pairs(before,await state(page),0);await page.mouse.up();pairs(before,await state(page),0);await canvas.click({position:{x:676,y:322}});const committed=await state(page);pairs(before,committed,1);expect(ramp(committed).stops[0]!.color).not.toEqual(ramp(before).stops[0]!.color);
+  await canvas.click({position:P.swatch});await page.mouse.move(box.x+756,box.y+409);await page.mouse.down();await page.mouse.move(box.x+776,box.y+372);await page.mouse.up();await canvas.press("Escape");pairs(committed,await state(page),0);
 });
 
 test("Backspace resets ramp or active color, undo restores, and Escape is inert", async ({ page }) => {
   const canvas = await open(page), a = await state(page); await canvas.click({ position: P.position }); await canvas.press("Backspace"); const reset = await state(page); pairs(a, reset, 1); expect(ramp(reset).stops.map(s => s.position)).toEqual([0, 1]); await undo(page); const restored = await state(page); pairs(reset, restored, 1); expect(ramp(restored)).toEqual(ramp(a));
-  await canvas.click({ position: P.swatch }); await canvas.press("Backspace"); const black = await state(page); pairs(restored, black, 1); expect(ramp(black).stops[0]!.color).toEqual([0,0,0,1]); await canvas.press("Escape"); pairs(black, await state(page), 0);
+  await canvas.hover({position:P.swatch});await canvas.press("Backspace");const black=await state(page);pairs(restored,black,1);expect(ramp(black).stops[0]!.color).toEqual([0,0,0,1]);await canvas.press("Escape");pairs(black,await state(page),0);
 });
 
 test("flip and distribute are one-commit, one-step-undo tools", async ({ page }) => {

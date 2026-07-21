@@ -41,10 +41,12 @@ test("@visual deterministic example canvas", async ({ page }) => {
       const index=(y*1200+x)*4;
       if(pixels[index]===237&&pixels[index+1]===87&&pixels[index+2]===0&&pixels[index+3]===255){selected++;if(x<299)expanded++;}
     }
-    return { selected, expanded };
+    const socketIndex=(234*1200+300)*4;
+    return {selected,expanded,socket:Array.from(pixels.slice(socketIndex,socketIndex+4))};
   });
   expect(selection.selected).toBeGreaterThan(100);
   expect(selection.expanded).toBe(0);
+  expect(selection.socket).toEqual([168,168,168,255]);
 });
 
 test("@visual distant zoom keeps text inside scaled nodes",async({page})=>{

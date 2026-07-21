@@ -4,11 +4,11 @@
 
 | Area | Status | Evidence and limits |
 | --- | --- | --- |
-| Uniform ordinary controls | Implemented | Number, integer, enum, boolean, string, vector, and RGBA fields share descriptor-ordered widget-unit rows. Compound widgets intentionally span multiple rows. |
+| Uniform ordinary controls | Implemented | Number, integer, enum, boolean, string, and vector fields share descriptor-ordered widget-unit rows. Colors use compact swatches backed by a worker-rendered Oklch/RGBA/HSV/hex picker. Compound widgets intentionally span multiple rows. |
 | Field reset | Implemented | Backspace resets the focused or hovered editable field; linked/read-only fields are inert; reset is one-step undoable. |
-| Color Ramp | Implemented structurally and behaviorally | Browser-tested stop selection/drag, add/remove, modes, interpolation, hue mode, position/RGBA edits, flip, distribute, reset, cancellation, and undo. Native color-picker and eyedropper integration remain unavailable. |
+| Color Ramp | Implemented structurally and behaviorally | Browser-tested stop selection/drag, add/remove, modes, interpolation, hue mode, popup color edits, flip, distribute, reset, cancellation, and undo. Eyedropper integration remains unavailable. |
 | Noise Texture | Implemented structurally | All Blender 4.5 dimensions/type visibility combinations are exhaustively tested. fxnode does not evaluate noise. |
-| Shader Image Texture | Implemented as editor intent | Projection/interpolation/extension and Box-only Blend are browser-tested. Image decoding, thumbnail generation, and texture evaluation are outside scope. |
+| Shader Image Texture | Implemented as editor intent | Local image selection, worker decoding/thumbnail rendering, projection/interpolation/extension, and Box-only Blend are browser-tested. Texture evaluation remains outside scope. |
 | Compositor Image | Partial by design | Image-user fields are represented and browser-tested. Dynamic multilayer/view/pass sockets require host resource metadata. |
 | Color Balance | Implemented structurally | Lift/Gamma/Gain, Offset/Power/Slope, and White Point layouts are browser-tested. “Master Color Grading” is an example label, not a Blender type. |
 | Knife and link mute | Implemented | Ctrl-RMB and Ctrl-Alt-RMB freehand gestures are browser-tested as one atomic version/history entry. |
@@ -19,7 +19,7 @@
 
 References: Blender 4.5's [Image Texture manual](https://docs.blender.org/manual/en/4.5/render/shader_nodes/textures/image.html), [Compositor Image manual](https://docs.blender.org/manual/en/4.5/compositing/types/input/image.html), [`ShaderNodeTexImage` RNA](https://docs.blender.org/api/4.5/bpy.types.ShaderNodeTexImage.html), and [`CompositorNodeImage` RNA](https://docs.blender.org/api/4.5/bpy.types.CompositorNodeImage.html).
 
-These are intentionally distinct descriptors. Image Texture persists an image reference plus interpolation, projection (including Box-only Blend), extension, editor color-space intent, alpha mode, Vector input, and Color/Alpha outputs. Compositor Image persists its data-block reference and source; Movie/Sequence expose frame count, start, offset, cyclic, and auto-refresh. It has only static Image/Alpha/Z outputs. Resource controls are selectors with non-functional Open/New placeholders: fxnode neither loads nor evaluates image pixels and claims no thumbnail. Dynamic multilayer/render passes require a future host metadata provider and are not fabricated.
+These are intentionally distinct descriptors. Image Texture persists an image reference plus interpolation, projection (including Box-only Blend), extension, editor color-space intent, alpha mode, Vector input, and Color/Alpha outputs. Compositor Image persists its data-block reference and source; Movie/Sequence expose frame count, start, offset, cyclic, and auto-refresh. It has only static Image/Alpha/Z outputs. Resource controls synchronously open a host file chooser, transfer bytes into the worker, decode there, and render a bounded-cache thumbnail. The graph stores only a serializable local reference—not image bytes—so loading that graph in a fresh editor shows the filename/unavailable state until the user reopens the file. Neither node evaluates image pixels. Dynamic multilayer/render passes require a future host metadata provider and are not fabricated.
 
 ## Color Balance / “Master Color Grading” example
 
@@ -33,7 +33,7 @@ References: [Blender 4.5 Color Ramp manual](https://docs.blender.org/manual/en/4
 
 The V2 persisted value records RGB/HSV/HSL mode, all five interpolation modes, hue interpolation, and two to 32 sorted, identified RGBA stops. Legacy arrays receive stable index-derived IDs. Worker-owned interactions cover overlapping selection, sampled insertion, Blender-style midpoint insertion, removal, clamped/reordering movement, RGBA updates, flip, even distribution, descriptor reset, cancellation, and one-step undo. The compound row owns toolbar/menu, checker-gradient, handle, selector, position, and color bounds; stops are not sockets. Active-stop selection remains transient and is not serialized.
 
-Deferred Blender details: popup color picker, eyedropper, precise Blender cardinal/B-spline kernels and HSL conversion, context popup styling, and keyboard navigation within popup menus.
+Deferred Blender details: eyedropper, precise Blender cardinal/B-spline kernels and HSL conversion, context popup styling, and keyboard navigation within popup menus.
 
 ## Noise Texture (Blender 4.5)
 

@@ -10,6 +10,7 @@ import { paintOklchWheel } from "./color-picker-renderer.js";
 export interface InteractionRenderState { readonly knife?:{points:readonly {x:number;y:number}[];crossed:ReadonlySet<LinkId>;mode:"remove"|"mute"} }
 export interface InteractionRenderState { readonly selectedNodes: ReadonlySet<NodeId>; readonly selectedLinks?:ReadonlySet<LinkId>; readonly activeNode?: NodeId; readonly hoverNode?: NodeId; readonly focusedControl?: string; readonly hoveredControl?:string;readonly focusedRampTarget?:string;readonly hoveredRampTarget?:string;readonly activeRampStopByNode?:ReadonlyMap<NodeId,string>;readonly collapseAnimations?:ReadonlyMap<NodeId,{readonly value:number}>; readonly controlEdit?:{readonly kind:"string";readonly controlId:string;readonly buffer:string}|{readonly kind:"number";readonly controlId:string;readonly component:number;readonly buffer:string;readonly selectAll:boolean}; readonly box?:{start:{x:number;y:number};current:{x:number;y:number}};readonly linkDrag?:{from:SocketId;current:{x:number;y:number};candidate?:SocketId};readonly parentHighlight?:NodeId }
 export interface RenderStats { readonly candidateNodes:number;readonly totalNodes:number;readonly paintedNodes:number;readonly candidateLinks:number;readonly totalLinks:number;readonly paintedLinks:number;readonly paintMs:number }
+export interface ResourceImage {readonly bitmap:ImageBitmap;readonly name:string}
 
 function valueText(value: unknown): string {
   const typed = value as ParameterValue | undefined;
@@ -19,6 +20,7 @@ function valueText(value: unknown): string {
   if (typed.kind === "json") return "…";
   return String(typed.value);
 }
+function resourceLabel(reference:string):string{if(!reference.startsWith("fxnode-local-image:"))return reference;try{return decodeURIComponent(reference.split(":").slice(3).join(":"));}catch{return reference;}}
 
 /** Canvas maxWidth scales glyphs but does not constrain them. Clip every label to its owning cell. */
 function clippedText(context: OffscreenCanvasRenderingContext2D, text: string, rect: Rect, x: number, y: number, padding = 3): void {
@@ -34,7 +36,7 @@ function paintColorSwatch(context:OffscreenCanvasRenderingContext2D,rect:Rect,rg
   context.save();context.beginPath();context.roundRect(rect.x,rect.y,rect.width,rect.height,4*zoom);context.clip();const cell=Math.max(3,5*zoom);for(let y=rect.y;y<rect.y+rect.height;y+=cell)for(let x=rect.x;x<rect.x+rect.width;x+=cell){context.fillStyle=(Math.floor((x-rect.x)/cell)+Math.floor((y-rect.y)/cell))%2?"#777":"#aaa";context.fillRect(x,y,cell,cell);}context.fillStyle=`rgba(${(rgba[0]??0)*255},${(rgba[1]??0)*255},${(rgba[2]??0)*255},${rgba[3]??1})`;context.fillRect(rect.x,rect.y,rect.width,rect.height);context.restore();context.beginPath();context.roundRect(rect.x+.5*zoom,rect.y+.5*zoom,Math.max(0,rect.width-zoom),Math.max(0,rect.height-zoom),4*zoom);context.strokeStyle="#111216";context.lineWidth=zoom;context.stroke();
 }
 
-function paintControl(context: OffscreenCanvasRenderingContext2D, control: LayoutControl, rect: Rect, theme: RenderTheme, zoom: number, interaction?: InteractionRenderState): void {
+function paintControl(context: OffscreenCanvasRenderingContext2D, control: LayoutControl, rect: Rect, theme: RenderTheme, zoom: number, interaction?: InteractionRenderState,resourceImages?:ReadonlyMap<string,ResourceImage>): void {
   const viewRect=(bounds:Rect):Rect=>({x:rect.x+(bounds.x-control.bounds.x)*zoom,y:rect.y+(control.bounds.y-bounds.y)*zoom,width:bounds.width*zoom,height:bounds.height*zoom});
   const typedRamp=control.value as {kind?:unknown;value?:unknown};
   if(control.kind==="color-ramp"&&typedRamp?.kind==="json"&&isColorRamp(typedRamp.value)){
@@ -60,8 +62,9 @@ function paintControl(context: OffscreenCanvasRenderingContext2D, control: Layou
   context.fillStyle = theme.text;
   context.textAlign = "center";
   if (control.kind === "resource") {
-    const value = valueText(control.value);
-    clippedText(context,value === "" ? "▧  Select…   Open   New" : `▧  ${value}   Open`,rect,rect.x + rect.width / 2,rect.y + rect.height / 2,3*zoom);
+    const typed=control.value as {kind?:unknown;value?:unknown},reference=typed?.kind==="string"&&typeof typed.value==="string"?typed.value:"",image=resourceImages?.get(reference),preview=control.resourceBounds?viewRect(control.resourceBounds.preview):undefined;
+    if(preview){context.save();context.beginPath();context.roundRect(preview.x,preview.y,preview.width,preview.height,4*zoom);context.clip();context.fillStyle="#202228";context.fillRect(preview.x,preview.y,preview.width,preview.height);if(image){const scale=Math.min(preview.width/image.bitmap.width,preview.height/image.bitmap.height),width=image.bitmap.width*scale,height=image.bitmap.height*scale;context.drawImage(image.bitmap,preview.x+(preview.width-width)/2,preview.y+(preview.height-height)/2,width,height);}else{context.fillStyle=theme.muted;clippedText(context,reference?"Image unavailable — reopen":"No image",preview,preview.x+preview.width/2,preview.y+preview.height/2,4*zoom);}context.restore();context.strokeStyle="#111216";context.strokeRect(preview.x+.5,preview.y+.5,Math.max(0,preview.width-1),Math.max(0,preview.height-1));}
+    const label=image?.name||resourceLabel(reference);clippedText(context,label?`${label}   Open…`:"Open Image…",rect,rect.x+rect.width/2,rect.y+rect.height/2,3*zoom);
     context.textAlign = "left";
     return;
   }
@@ -114,7 +117,7 @@ function paintSocket(context: OffscreenCanvasRenderingContext2D, socket: LayoutS
   context.fillText(socket.label, point.x + (socket.direction === "input" ? 10 : -10) * zoom, point.y);}
   context.textAlign = "left";
 }
-export function renderCanvas(context: OffscreenCanvasRenderingContext2D, snapshot: LayoutSnapshot, theme: RenderTheme, interaction?: InteractionRenderState): RenderStats {
+export function renderCanvas(context: OffscreenCanvasRenderingContext2D, snapshot: LayoutSnapshot, theme: RenderTheme, interaction?: InteractionRenderState,resourceImages?:ReadonlyMap<string,ResourceImage>): RenderStats {
   const started=performance.now();let paintedNodes=0,paintedLinks=0;const planned=snapshot as LayoutSnapshot&{candidateLinkIds?:readonly LinkId[];candidateNodeIds?:readonly NodeId[];totalNodes?:number;totalLinks?:number};
   const { transform: t } = snapshot;
   context.setTransform(t.dpr, 0, 0, t.dpr, 0, 0);
@@ -142,6 +145,7 @@ export function renderCanvas(context: OffscreenCanvasRenderingContext2D, snapsho
     context.save(); context.beginPath(); context.roundRect(r.x, r.y, r.width, r.height, radius); context.clip(); context.fillStyle = theme.headers[node.category]; context.fillRect(r.x, r.y, r.width, h); context.restore(); context.beginPath(); context.roundRect(r.x, r.y, r.width, r.height, radius); context.strokeStyle = theme.outline; context.lineWidth = 1; context.stroke();
     context.fillStyle = theme.text; context.font = `600 ${12 * t.zoom}px sans-serif`; context.textBaseline = "middle";if(t.zoom>=.25)context.fillText(node.label, r.x + 22 * t.zoom, r.y + h / 2);
     const cx=r.x+10*t.zoom,cy=r.y+h/2,collapseAmount=Math.max(0,Math.min(1,interaction?.collapseAnimations?.get(node.id)?.value??(node.collapsed?1:0)));context.save();context.translate(cx,cy);context.rotate(-Math.PI/2*collapseAmount);context.beginPath();context.moveTo(-5*t.zoom,-2.5*t.zoom);context.lineTo(0,2.5*t.zoom);context.lineTo(5*t.zoom,-2.5*t.zoom);context.strokeStyle="rgba(255,255,255,.75)";context.lineWidth=2*t.zoom;context.lineCap="round";context.lineJoin="round";context.stroke();context.restore();
+    if (interaction?.selectedNodes.has(node.id)) { context.beginPath(); context.roundRect(r.x,r.y,r.width,r.height,radius); context.strokeStyle=node.id===interaction.activeNode?theme.nodeActive:theme.nodeSelected; context.lineWidth=2; context.stroke(); }
     context.font = `${11 * t.zoom}px sans-serif`;
     for (const row of node.rows) {
       if (row.kind === "header" || row.kind === "category" || row.kind === "section" || row.kind === "panel" || row.kind === "placeholder") {
@@ -152,8 +156,8 @@ export function renderCanvas(context: OffscreenCanvasRenderingContext2D, snapsho
         const control = snapshot.controls.get(row.controlId);
         if (control) {
           const rowRect = viewRect(row.bounds);
-          if(control.numericFields.length!==1){context.fillStyle = theme.muted;context.fillText(control.label, rowRect.x + 8 * t.zoom, rowRect.y + rowRect.height / 2);}
-          paintControl(context, control, viewRect(control.bounds), theme, t.zoom, interaction);
+          if(control.kind!=="resource"&&control.numericFields.length!==1){context.fillStyle = theme.muted;context.fillText(control.label, rowRect.x + 8 * t.zoom, rowRect.y + rowRect.height / 2);}
+          paintControl(context, control, viewRect(control.bounds), theme, t.zoom, interaction,resourceImages);
         }
       } else if (row.kind === "grading-wheels") {
         for(const wheel of row.wheels){const scalar=snapshot.controls.get(wheel.scalarControlId),color=snapshot.controls.get(wheel.colorControlId),value=color?.value as {kind?:unknown;value?:readonly number[]};if(!scalar||!color||value?.kind!=="color"||!value.value||!color.colorWheelBounds)continue;const label=viewRect(wheel.labelBounds),plane=viewRect(color.colorWheelBounds.plane),lightness=viewRect(color.colorWheelBounds.lightness),model=oklabToOklch(srgbToOklab([value.value[0]??1,value.value[1]??1,value.value[2]??1]));context.fillStyle=theme.muted;context.textAlign="center";context.fillText(wheel.label,label.x+label.width/2,label.y+label.height/2);paintOklchWheel(context,{plane,lightness},model,t.dpr,Math.min(.9,Math.max(.1,model.l)));paintControl(context,scalar,viewRect(scalar.bounds),theme,t.zoom,interaction);context.textAlign="left";}
@@ -165,7 +169,6 @@ export function renderCanvas(context: OffscreenCanvasRenderingContext2D, snapsho
       }
     }
     if(node.muted){context.save();context.beginPath();context.roundRect(r.x,r.y,r.width,r.height,radius);context.clip();context.fillStyle="rgba(20,20,20,.35)";context.fillRect(r.x,r.y,r.width,r.height);context.restore();for(const bypass of node.bypasses){const a=worldToView(bypass.from,t),b=worldToView(bypass.to,t),dx=Math.max(20,Math.abs(b.x-a.x)*.4);context.strokeStyle="#d94b4b";context.lineWidth=3;context.beginPath();context.moveTo(a.x,a.y);context.bezierCurveTo(a.x+dx,a.y,b.x-dx,b.y,b.x,b.y);context.stroke();}}
-    if (interaction?.selectedNodes.has(node.id)) { context.beginPath(); context.roundRect(r.x,r.y,r.width,r.height,radius); context.strokeStyle=node.id===interaction.activeNode?theme.nodeActive:theme.nodeSelected; context.lineWidth=2; context.stroke(); }
     if(!node.collapsed){context.beginPath();context.moveTo(r.x+r.width-9*t.zoom,r.y+r.height);context.lineTo(r.x+r.width,r.y+r.height-9*t.zoom);context.strokeStyle="#8b8e95";context.lineWidth=1;context.stroke();}
     context.textAlign = "left";
   }
