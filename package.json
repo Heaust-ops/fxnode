@@ -41,7 +41,7 @@
     "test:browser": "playwright test --config playwright.config.ts",
     "test:visual": "playwright test --config playwright.visual.config.ts",
     "test:visual:update": "playwright test --config playwright.visual.config.ts --update-snapshots",
-    "example": "vite example --host 127.0.0.1",
+    "example": "vite --config vite.config.ts example --host 127.0.0.1",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "build": "vite build && tsc -p tsconfig.build.json",
