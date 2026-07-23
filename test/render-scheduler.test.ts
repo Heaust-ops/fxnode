@@ -1,13 +1,20 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DirtyReason, RenderScheduler } from "../src/worker/render-scheduler.js";
+import { DirtyReason, RenderScheduler } from "@lib/worker/render-scheduler.js";
 
 test("continuous RAF polls while idle and preserves one-frame backpressure", () => {
   const callbacks: Array<() => void> = [];
   const draws: Array<readonly [number, number, number]> = [];
   let polls = 0;
-  const scheduler = new RenderScheduler((...args) => draws.push(args), callback => callbacks.push(callback));
-  const tick = () => { const callback = callbacks.shift(); assert.ok(callback); callback(); };
+  const scheduler = new RenderScheduler(
+    (...args) => draws.push(args),
+    (callback) => callbacks.push(callback),
+  );
+  const tick = () => {
+    const callback = callbacks.shift();
+    assert.ok(callback);
+    callback();
+  };
 
   scheduler.start(() => polls++);
   assert.equal(callbacks.length, 1);

@@ -1,4 +1,4 @@
-import type { BuiltinNodeTypeId } from "../catalog/scope.js";
+import type { FxNodeCompositionData, NodeTypeId } from "../composition/types.js";
 
 declare const brand: unique symbol;
 type Branded<T extends string> = string & { readonly [brand]: T };
@@ -9,8 +9,11 @@ export type SocketId = Branded<"SocketId">;
 export type CommandId = Branded<"CommandId">;
 export type GraphId = Branded<"GraphId">;
 export type JsonValue = null | boolean | number | string | readonly JsonValue[] | { readonly [key: string]: JsonValue };
-export interface Vec2 { readonly x: number; readonly y: number }
-export type SocketDataType = "float" | "vector" | "color" | "shader" | "geometry" | "any";
+export interface Vec2 {
+  readonly x: number;
+  readonly y: number;
+}
+export type SocketDataType = string;
 export type ParameterValue =
   | { readonly kind: "number"; readonly value: number }
   | { readonly kind: "boolean"; readonly value: boolean }
@@ -27,7 +30,7 @@ export interface Socket {
   readonly dataType: SocketDataType;
   readonly accepts: readonly SocketDataType[];
   readonly maxIncomingLinks: number;
-  readonly defaultValue?: ParameterValue;
+  readonly defaultValue?: ParameterValue | null | undefined;
   readonly visible: boolean;
   readonly metadata?: Readonly<Record<string, JsonValue>>;
 }
@@ -47,17 +50,63 @@ export interface NodeBase {
   readonly parentId?: NodeId | undefined;
   readonly extensions: Readonly<Record<string, JsonValue>>;
 }
-export interface KnownNode extends NodeBase { readonly known: true; readonly typeId: BuiltinNodeTypeId; readonly parameters: Readonly<Record<string, ParameterValue>> }
-export interface UnknownNode extends NodeBase { readonly known: false }
-export type GraphNode = KnownNode | UnknownNode;
-export interface GraphLink { readonly id: LinkId; readonly fromNodeId: NodeId; readonly fromSocketId: SocketId; readonly toNodeId: NodeId; readonly toSocketId: SocketId; readonly muted: boolean; readonly extensions: Readonly<Record<string, JsonValue>> }
-export interface GraphDocument { readonly schemaVersion: 2; readonly graphId: GraphId; readonly catalogVersion: number; readonly nodes: Readonly<Record<string, GraphNode>>; readonly links: Readonly<Record<string, GraphLink>>; readonly metadata: Readonly<Record<string, JsonValue>> }
+export interface KnownNode<C extends FxNodeCompositionData = FxNodeCompositionData> extends NodeBase {
+  readonly known: true;
+  readonly typeId: NodeTypeId<C>;
+  readonly parameters: Readonly<Record<string, ParameterValue>>;
+}
+export interface UnknownNode extends NodeBase {
+  readonly known: false;
+}
+export type GraphNode<C extends FxNodeCompositionData = FxNodeCompositionData> = KnownNode<C> | UnknownNode;
+export interface GraphLink {
+  readonly id: LinkId;
+  readonly fromNodeId: NodeId;
+  readonly fromSocketId: SocketId;
+  readonly toNodeId: NodeId;
+  readonly toSocketId: SocketId;
+  readonly muted: boolean;
+  readonly extensions: Readonly<Record<string, JsonValue>>;
+}
+export interface GraphDocument<C extends FxNodeCompositionData = FxNodeCompositionData> {
+  readonly schemaVersion: 2;
+  readonly graphId: GraphId;
+  readonly catalogVersion: number;
+  readonly nodes: Readonly<Record<string, GraphNode<C>>>;
+  readonly links: Readonly<Record<string, GraphLink>>;
+  readonly metadata: Readonly<Record<string, JsonValue>>;
+}
 
-export interface GraphLayoutNodeV1 extends Omit<NodeBase, "known"> { readonly parameters: Readonly<Record<string, ParameterValue | JsonValue>> }
+export interface GraphLayoutNodeV1 extends Omit<NodeBase, "known"> {
+  readonly parameters: Readonly<Record<string, ParameterValue | JsonValue>>;
+}
 export interface GraphLinkV1 extends Omit<GraphLink, "muted"> {}
-export interface GraphLayoutV1 { readonly schemaVersion: 1; readonly graphId: GraphId; readonly catalogVersion: number; readonly nodes: readonly GraphLayoutNodeV1[]; readonly links: readonly GraphLinkV1[]; readonly metadata: Readonly<Record<string, JsonValue>> }
-export interface GraphLayoutV2 { readonly schemaVersion: 2; readonly graphId: GraphId; readonly catalogVersion: number; readonly nodes: readonly GraphLayoutNodeV1[]; readonly links: readonly GraphLink[]; readonly metadata: Readonly<Record<string, JsonValue>> }
-export interface GraphSnapshot { readonly version: number; readonly graphId: GraphId; readonly catalogVersion: number; readonly nodes: readonly GraphNode[]; readonly links: readonly GraphLink[]; readonly metadata: Readonly<Record<string, JsonValue>> }
+export interface GraphLayoutV1 {
+  readonly schemaVersion: 1;
+  readonly graphId: GraphId;
+  readonly catalogVersion: number;
+  readonly nodes: readonly GraphLayoutNodeV1[];
+  readonly links: readonly GraphLinkV1[];
+  readonly metadata: Readonly<Record<string, JsonValue>>;
+}
+export interface GraphLayoutV2 {
+  readonly schemaVersion: 2;
+  readonly graphId: GraphId;
+  readonly catalogVersion: number;
+  readonly nodes: readonly GraphLayoutNodeV1[];
+  readonly links: readonly GraphLink[];
+  readonly metadata: Readonly<Record<string, JsonValue>>;
+}
+export interface GraphState<C extends FxNodeCompositionData = FxNodeCompositionData> {
+  readonly graphId: GraphId;
+  readonly catalogVersion: number;
+  readonly nodes: readonly GraphNode<C>[];
+  readonly links: readonly GraphLink[];
+  readonly metadata: Readonly<Record<string, JsonValue>>;
+}
+export interface GraphSnapshot<C extends FxNodeCompositionData = FxNodeCompositionData> extends GraphState<C> {
+  readonly version: number;
+}
 
 export const nodeId = (value: string): NodeId => value as NodeId;
 export const linkId = (value: string): LinkId => value as LinkId;

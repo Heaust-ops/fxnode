@@ -23,8 +23,18 @@
   },
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" },
-    "./headless": { "types": "./dist/headless.d.ts", "import": "./dist/headless.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./headless": {
+      "types": "./dist/headless.d.ts",
+      "import": "./dist/headless.js"
+    },
+    "./widgets/color-ramp": {
+      "types": "./dist/widgets/color-ramp.d.ts",
+      "import": "./dist/widgets/color-ramp.js"
+    }
   },
   "scripts": {
     "test": "node --import tsx --test test/*.test.ts",
@@ -32,26 +42,33 @@
     "test:visual": "playwright test --config playwright.visual.config.ts",
     "test:visual:update": "playwright test --config playwright.visual.config.ts --update-snapshots",
     "example": "vite example --host 127.0.0.1",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "build": "vite build && tsc -p tsconfig.build.json",
     "check:package": "tsx tools/check-package.ts",
     "release:check": "npm run check && npm run test:browser && npm run test:visual && npm run check:package",
     "prepublishOnly": "npm run release:check",
-    "check": "npm run typecheck && npm test && npm run check:performance && npm run check:all-supported && npm run build && npm run check:catalog && npm run check:references",
+    "check": "npm run typecheck && npm test && npm run check:performance && npm run check:all-supported && npm run check:example-fixture && npm run check:browser-fixtures && npm run build && npm run check:composition && npm run check:references",
     "check:performance": "tsx tools/performance-phase7.ts --check",
     "benchmark:performance": "tsx tools/performance-phase7.ts",
     "typecheck": "tsc --noEmit",
-    "check:catalog": "tsx tools/check-catalog.ts",
+    "check:composition": "tsx tools/check-application-composition.ts",
     "check:references": "tsx tools/check-references.ts",
     "check:references:strict": "tsx tools/check-references.ts --strict",
     "generate:all-supported": "tsx tools/all-supported.ts --write",
-    "check:all-supported": "tsx tools/all-supported.ts"
+    "check:all-supported": "tsx tools/all-supported.ts",
+    "generate:example-fixture": "tsx tools/example-fixture.ts --write",
+    "check:example-fixture": "tsx tools/example-fixture.ts",
+    "generate:browser-fixtures": "tsx tools/browser-fixtures.ts --write",
+    "check:browser-fixtures": "tsx tools/browser-fixtures.ts"
   },
   "devDependencies": {
+    "@playwright/test": "1.61.1",
     "@types/node": "22.14.0",
+    "prettier": "^3.6.2",
     "tsx": "4.19.2",
     "typescript": "5.7.2",
-    "vite": "6.1.0",
-    "@playwright/test": "1.61.1"
+    "vite": "6.1.0"
   },
   "engines": {
     "node": ">=20"

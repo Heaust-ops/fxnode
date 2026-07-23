@@ -1,0 +1,15 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+blob-report/
+.amp/
+
+# Canonical generated data is formatted by its generator and byte-checked.
+example/initialLayout.json
+example/**/initialLayout.json
+
+# Binary and captured reference assets.
+**/*.png
+**/*.blend
+**/*.blend1

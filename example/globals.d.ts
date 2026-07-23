@@ -1,12 +1,17 @@
-import type { FxNode } from "../src/index.js";
+import type { FxNode } from "@lib/index.js";
+import type { PreparedFxNodeBrowserHost } from "./browser-host.js";
 
 declare global {
   interface FxNodeExampleHandle {
     api: FxNode | null;
+    host: PreparedFxNodeBrowserHost;
     ready: Promise<void>;
     readonly rendered: Promise<void>;
   }
-  interface Window { fxnodeExample: FxNodeExampleHandle; linkToolsTest: { api: FxNode | null; ready: Promise<void> } }
+  interface Window {
+    fxnodeExample: FxNodeExampleHandle;
+    linkToolsTest: { api: FxNode | null; ready: Promise<void> };
+  }
 }
 
 export {};
