@@ -1,5 +1,8 @@
 node_modules/
 dist/
+docs/reference/generated/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
 *.blend
 *.blend1
 .DS_Store

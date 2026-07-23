@@ -12,22 +12,24 @@ export interface FxNodeCompositionData {
 /** An authoring seed which may omit the theme until passed through setTheme. */
 export type FxNodeCompositionSeed = Omit<FxNodeCompositionData, "theme"> & { readonly theme?: never };
 
-type StringKey<T> = Extract<keyof T, string>;
 export type NodeTypeId<C extends FxNodeCompositionData = FxNodeCompositionData> =
-  string extends StringKey<C["nodes"]> ? string : StringKey<C["nodes"]>;
+  string extends Extract<keyof C["nodes"], string> ? string : Extract<keyof C["nodes"], string>;
 export type SocketTypeId<C extends FxNodeCompositionData = FxNodeCompositionData> =
-  string extends StringKey<C["socketTypes"]> ? string : StringKey<C["socketTypes"]>;
+  string extends Extract<keyof C["socketTypes"], string> ? string : Extract<keyof C["socketTypes"], string>;
 export type NodeStyleId<C extends FxNodeCompositionData = FxNodeCompositionData> =
-  string extends StringKey<C["nodeStyles"]> ? string : StringKey<C["nodeStyles"]>;
+  string extends Extract<keyof C["nodeStyles"], string> ? string : Extract<keyof C["nodeStyles"], string>;
 export type ResourceId<C extends FxNodeCompositionData = FxNodeCompositionData> =
-  string extends StringKey<C["resources"]> ? string : StringKey<C["resources"]>;
-type NodeAt<C extends FxNodeCompositionData, N extends NodeTypeId<C>> = N extends keyof C["nodes"]
-  ? C["nodes"][N]
-  : never;
-export type NodeParameterId<C extends FxNodeCompositionData, N extends NodeTypeId<C>> =
-  NodeAt<C, N> extends { readonly parameters: infer P } ? StringKey<P> : string;
-export type NodeSocketId<C extends FxNodeCompositionData, N extends NodeTypeId<C>> =
-  NodeAt<C, N> extends { readonly sockets: infer S } ? StringKey<S> : string;
+  string extends Extract<keyof C["resources"], string> ? string : Extract<keyof C["resources"], string>;
+export type NodeParameterId<C extends FxNodeCompositionData, N extends NodeTypeId<C>> = N extends keyof C["nodes"]
+  ? C["nodes"][N] extends { readonly parameters: infer P }
+    ? Extract<keyof P, string>
+    : string
+  : string;
+export type NodeSocketId<C extends FxNodeCompositionData, N extends NodeTypeId<C>> = N extends keyof C["nodes"]
+  ? C["nodes"][N] extends { readonly sockets: infer S }
+    ? Extract<keyof S, string>
+    : string
+  : string;
 export type AnyNodeParameterId<C extends FxNodeCompositionData = FxNodeCompositionData> =
   NodeTypeId<C> extends infer N ? (N extends NodeTypeId<C> ? NodeParameterId<C, N> : never) : never;
 export type AnyNodeSocketId<C extends FxNodeCompositionData = FxNodeCompositionData> =
@@ -48,6 +50,8 @@ export type FxNodeParameterValue =
   | { readonly kind: "vector"; readonly value: readonly [number, number, number] }
   | { readonly kind: "color"; readonly value: readonly [number, number, number, number] }
   | { readonly kind: "json"; readonly value: FxNodeJsonValue };
+/** @inline */
+/** @inline */
 type Bounds = {
   readonly minimum?: number;
   readonly maximum?: number;
@@ -225,10 +229,12 @@ export interface FxNodeReadonlyMap<K, V> extends Iterable<readonly [K, V]> {
   forEach(callback: (value: V, key: K) => void): void;
   [Symbol.iterator](): IterableIterator<[K, V]>;
 }
+/** @inline */
+/** @inline */
 type Values<T> = T[keyof T];
-export type CompiledNode<C extends FxNodeCompositionData, N extends NodeTypeId<C>> = NodeAt<C, N> & {
-  readonly typeId: N;
-};
+export type CompiledNode<C extends FxNodeCompositionData, N extends NodeTypeId<C>> = (N extends keyof C["nodes"]
+  ? C["nodes"][N]
+  : never) & { readonly typeId: N };
 export type CompiledResource<C extends FxNodeCompositionData, R extends ResourceId<C>> = Omit<
   C["resources"][R],
   "maxBytes" | "maxWidth" | "maxHeight" | "maxPixels"

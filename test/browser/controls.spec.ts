@@ -20,7 +20,7 @@ const CONTROL_COORDS = Object.freeze({
 } satisfies Record<string, Point>);
 
 const open = async (page: Page): Promise<ControlPage> => {
-  await page.goto("/example/control-test/");
+  await page.goto("/examples/blender/control-test/");
   await page.evaluate(() => window.controlTest.ready);
   expect(await page.locator('input[type="file"]').count()).toBe(0);
   await page.evaluate(() => {

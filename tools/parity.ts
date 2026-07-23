@@ -41,6 +41,6 @@ const document: GraphDocument = {
 const saved = save(document);
 const { schemaVersion: _schemaVersion, ...layout } = saved;
 writeFileSync(
-  new URL("../example/parity/initialLayout.json", import.meta.url),
+  new URL("../examples/blender/parity/initialLayout.json", import.meta.url),
   JSON.stringify({ ...layout, nodes: layout.nodes.map((node) => ({ ...node, known: true })) }, null, 2) + "\n",
 );

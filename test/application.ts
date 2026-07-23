@@ -8,8 +8,8 @@ import {
   APPLICATION_RESOURCES,
   APPLICATION_VERSION,
   applicationCompatibility,
-} from "../example/nodes/application.js";
-import { applicationTheme } from "../example/nodes/theme.js";
+} from "../examples/blender/nodes/application.js";
+import { exampleTheme } from "../examples/shared/theme.js";
 import {
   anySocket,
   floatSocket,
@@ -17,29 +17,29 @@ import {
   colorSocket,
   shaderSocket,
   geometrySocket,
-} from "../example/nodes/socket-types.js";
-import { frameNode } from "../example/nodes/common/frame.js";
-import { rerouteNode } from "../example/nodes/common/reroute.js";
-import { groupInputNode } from "../example/nodes/common/group-input.js";
-import { groupOutputNode } from "../example/nodes/common/group-output.js";
-import { valueNode } from "../example/nodes/shader/value.js";
-import { colorNode } from "../example/nodes/shader/color.js";
-import { mathNode } from "../example/nodes/shader/math.js";
-import { vectorMathNode } from "../example/nodes/shader/vector-math.js";
-import { mixNode } from "../example/nodes/shader/mix.js";
-import { colorRampNode } from "../example/nodes/shader/color-ramp.js";
-import { textureCoordinateNode } from "../example/nodes/shader/texture-coordinate.js";
-import { noiseTextureNode } from "../example/nodes/shader/noise-texture.js";
-import { imageTextureNode } from "../example/nodes/shader/image-texture.js";
-import { principledBsdfNode } from "../example/nodes/shader/principled-bsdf.js";
-import { materialOutputNode } from "../example/nodes/shader/material-output.js";
-import { positionNode } from "../example/nodes/geometry/position.js";
-import { meshCubeNode } from "../example/nodes/geometry/mesh-cube.js";
-import { setPositionNode } from "../example/nodes/geometry/set-position.js";
-import { transformGeometryNode } from "../example/nodes/geometry/transform-geometry.js";
-import { joinGeometryNode } from "../example/nodes/geometry/join-geometry.js";
-import { imageNode } from "../example/nodes/compositor/image.js";
-import { colorBalanceNode } from "../example/nodes/compositor/color-balance.js";
+} from "../examples/blender/nodes/socket-types.js";
+import { frameNode } from "../examples/blender/nodes/common/frame.js";
+import { rerouteNode } from "../examples/blender/nodes/common/reroute.js";
+import { groupInputNode } from "../examples/blender/nodes/common/group-input.js";
+import { groupOutputNode } from "../examples/blender/nodes/common/group-output.js";
+import { valueNode } from "../examples/blender/nodes/shader/value.js";
+import { colorNode } from "../examples/blender/nodes/shader/color.js";
+import { mathNode } from "../examples/blender/nodes/shader/math.js";
+import { vectorMathNode } from "../examples/blender/nodes/shader/vector-math.js";
+import { mixNode } from "../examples/blender/nodes/shader/mix.js";
+import { colorRampNode } from "../examples/blender/nodes/shader/color-ramp.js";
+import { textureCoordinateNode } from "../examples/blender/nodes/shader/texture-coordinate.js";
+import { noiseTextureNode } from "../examples/blender/nodes/shader/noise-texture.js";
+import { imageTextureNode } from "../examples/blender/nodes/shader/image-texture.js";
+import { principledBsdfNode } from "../examples/blender/nodes/shader/principled-bsdf.js";
+import { materialOutputNode } from "../examples/blender/nodes/shader/material-output.js";
+import { positionNode } from "../examples/blender/nodes/geometry/position.js";
+import { meshCubeNode } from "../examples/blender/nodes/geometry/mesh-cube.js";
+import { setPositionNode } from "../examples/blender/nodes/geometry/set-position.js";
+import { transformGeometryNode } from "../examples/blender/nodes/geometry/transform-geometry.js";
+import { joinGeometryNode } from "../examples/blender/nodes/geometry/join-geometry.js";
+import { imageNode } from "../examples/blender/nodes/compositor/image.js";
+import { colorBalanceNode } from "../examples/shared/nodes/color-balance.js";
 
 const seed = {
   schemaVersion: 2,
@@ -51,7 +51,7 @@ const seed = {
   socketTypes: {},
   nodes: {},
 } as const;
-const themed = setTheme(seed, applicationTheme);
+const themed = setTheme(seed, exampleTheme);
 const socket1 = composeSocket(themed, ...anySocket);
 const socket2 = composeSocket(socket1, ...floatSocket);
 const socket3 = composeSocket(socket2, ...vectorSocket);

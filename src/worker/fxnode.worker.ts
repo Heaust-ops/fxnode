@@ -20,12 +20,12 @@ import { bindFxNodeHeadless } from "../headless-runtime.js";
 import type { CompiledFxNodeComposition, FxNodeCompositionData } from "../composition/types.js";
 import {
   rebindBoundEngineAuthority,
-  type BoundEngineState,
-  type BoundLoadResult,
-  type BoundMutationEnvelope,
-  type BoundReplayResult,
-  type BoundSnapshotEnvelope,
-  type BoundTransitionResult,
+  type EngineState as BoundEngineState,
+  type LoadResult as BoundLoadResult,
+  type MutationEnvelope as BoundMutationEnvelope,
+  type ReplayResult as BoundReplayResult,
+  type SnapshotEnvelope as BoundSnapshotEnvelope,
+  type TransitionResult as BoundTransitionResult,
 } from "../composition/bound-engine.js";
 import { applyNodeOrder, layoutGraph } from "../layout/layout-graph.js";
 import { IndexedLayoutStore } from "../layout/indexed-layout-store.js";

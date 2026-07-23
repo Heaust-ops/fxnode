@@ -7,7 +7,9 @@ import type {
   FxNodeTheme,
 } from "./types.js";
 
+/** @inline */
 type ReplaceProperty<T, K extends keyof T, V> = { readonly [P in keyof T]: P extends K ? V : T[P] };
+/** @inline */
 type PutProperty<T, K extends PropertyKey, V> = {
   readonly [P in keyof T | K]: P extends K ? V : P extends keyof T ? T[P] : never;
 };
@@ -15,31 +17,13 @@ type EntryValue<E, K extends PropertyKey> = E extends readonly [K, infer V] ? V 
 type PutEntries<T, E extends readonly [string, unknown]> = {
   readonly [P in keyof T | E[0]]: P extends E[0] ? EntryValue<E, P> : P extends keyof T ? T[P] : never;
 };
-type NodeStyleReference<D> = D extends { readonly style: infer S extends string } ? S : never;
-type SocketTypeReference<D> = D extends { readonly sockets: infer S }
-  ? S[keyof S] extends infer Socket
-    ? Socket extends { readonly type: infer T extends string }
-      ? T
-      : never
-    : never
-  : never;
-type ResourceReference<D> = D extends { readonly ui: readonly (infer R)[] }
-  ? R extends { readonly kind: "resource"; readonly resource: infer I extends string }
-    ? I
-    : never
-  : never;
-export type NodeReferenceTarget<D extends FxNodeDefinition> = {
-  readonly nodeStyles: Readonly<Record<NodeStyleReference<D>, unknown>>;
-  readonly socketTypes: Readonly<Record<SocketTypeReference<D>, unknown>>;
-  readonly resources: Readonly<Record<ResourceReference<D>, unknown>>;
-};
 export type NodeCompositionEntry = readonly [id: string, definition: FxNodeDefinition];
 export type SocketCompositionEntry = readonly [id: string, definition: FxNodeSocketTypeDefinition];
-export type ComposedNode<
-  C extends FxNodeCompositionData,
-  I extends string,
-  D extends FxNodeDefinition,
-> = ReplaceProperty<C, "nodes", PutProperty<C["nodes"], I, D>>;
+export type ComposedNode<C extends FxNodeCompositionData, I extends string, D extends FxNodeDefinition> = {
+  readonly [P in keyof C]: P extends "nodes"
+    ? { readonly [N in keyof C["nodes"] | I]: N extends I ? D : N extends keyof C["nodes"] ? C["nodes"][N] : never }
+    : C[P];
+};
 export type ComposedNodes<C extends FxNodeCompositionData, E extends NodeCompositionEntry> = ReplaceProperty<
   C,
   "nodes",
@@ -49,21 +33,33 @@ export type ComposedSocket<
   C extends Pick<FxNodeCompositionData, "socketTypes">,
   I extends string,
   D extends FxNodeSocketTypeDefinition,
-> = ReplaceProperty<C, "socketTypes", PutProperty<C["socketTypes"], I, D>>;
+> = {
+  readonly [P in keyof C]: P extends "socketTypes"
+    ? {
+        readonly [S in keyof C["socketTypes"] | I]: S extends I
+          ? D
+          : S extends keyof C["socketTypes"]
+            ? C["socketTypes"][S]
+            : never;
+      }
+    : C[P];
+};
 export type ComposedSockets<
   C extends Pick<FxNodeCompositionData, "socketTypes">,
   E extends SocketCompositionEntry,
 > = ReplaceProperty<C, "socketTypes", PutEntries<C["socketTypes"], E>>;
+/** @inline */
 type ThemeTarget = Omit<FxNodeCompositionData, "theme"> & { readonly theme?: FxNodeTheme };
-export type Themed<C, T> = PutProperty<C, "theme", T>;
+export type Themed<C, T> = {
+  readonly [P in keyof C | "theme"]: P extends "theme" ? T : P extends keyof C ? C[P] : never;
+};
 export type RemovedSocket<
   C extends Pick<FxNodeCompositionData, "socketTypes">,
   I extends Extract<keyof C["socketTypes"], string>,
-> = ReplaceProperty<C, "socketTypes", Omit<C["socketTypes"], I>>;
-export type RemovedNode<
-  C extends Pick<FxNodeCompositionData, "nodes">,
-  I extends Extract<keyof C["nodes"], string>,
-> = ReplaceProperty<C, "nodes", Omit<C["nodes"], I>>;
+> = { readonly [P in keyof C]: P extends "socketTypes" ? Omit<C["socketTypes"], I> : C[P] };
+export type RemovedNode<C extends Pick<FxNodeCompositionData, "nodes">, I extends Extract<keyof C["nodes"], string>> = {
+  readonly [P in keyof C]: P extends "nodes" ? Omit<C["nodes"], I> : C[P];
+};
 
 export function setTheme<const C extends ThemeTarget, const T extends FxNodeTheme>(
   composition: C,
@@ -108,13 +104,9 @@ export function removeSocket(
 }
 export function composeNode<
   const D extends FxNodeDefinition,
-  const C extends FxNodeCompositionData & NodeReferenceTarget<NoInfer<D>>,
+  const C extends FxNodeCompositionData,
   const I extends string,
->(
-  composition: C,
-  id: I,
-  definition: D & NodeReferenceCheck<NoInfer<C> & NodeReferenceTarget<NoInfer<D>>, D>,
-): ComposedNode<C, I, D>;
+>(composition: C, id: I, definition: D & NodeReferenceCheck<NoInfer<C>, D>): ComposedNode<C, I, D>;
 export function composeNode(
   composition: FxNodeCompositionData,
   id: string,

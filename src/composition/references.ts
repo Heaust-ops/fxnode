@@ -23,6 +23,7 @@ type Row<R, P, S, Resources> = R extends { kind: "parameter" | "widget" | "resou
         : R extends { widget: "grading-wheels"; bindings: infer B extends readonly unknown[] }
           ? Vis<Omit<R, "bindings"> & { bindings: { [I in keyof B]: B[I] & { scalar: P; color: P } } }, P>
           : Vis<R, P>;
+/** @inline */
 type Migration<M, P extends string, S extends string> = M extends { steps: infer Steps extends readonly unknown[] }
   ? M & {
       readonly fromVersion: number;

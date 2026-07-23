@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("M muting is one paired gesture for bypass nodes and generators", async ({ page }) => {
-  await page.goto("/example/");
+  await page.goto("/examples/blender/");
   await page.evaluate(() => window.fxnodeExample.ready);
   const canvas = page.locator("#graph");
   await page.evaluate(() => {
@@ -58,7 +58,7 @@ test("M muting is one paired gesture for bypass nodes and generators", async ({ 
 });
 
 test("equivalent selection summaries retain identity and API mute is one-step undoable", async ({ page }) => {
-  await page.goto("/example/");
+  await page.goto("/examples/blender/");
   await page.evaluate(() => window.fxnodeExample.ready);
   const canvas = page.locator("#graph");
   expect(
@@ -120,7 +120,7 @@ test("collapse chevron animates for click, H, API, and interrupted reversal then
     });
     Object.defineProperty(window, "frameDraws", { get: () => frames });
   });
-  await page.goto("/example/");
+  await page.goto("/examples/blender/");
   await page.evaluate(() => window.fxnodeExample.ready);
   const canvas = page.locator("#graph");
   await canvas.click({ position: { x: 380, y: 160 } });

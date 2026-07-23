@@ -15,72 +15,80 @@ import { reduceMutations } from "../engine/reducer.js";
 import {
   bindDocument,
   graphStateFromDocument,
-  type BoundDecodeResult,
-  type BoundValidationIssue,
+  type DecodeResult as BoundDecodeResult,
+  type ValidationIssue as BoundValidationIssue,
 } from "./bound-document.js";
 import type { CompiledFxNodeComposition, FxNodeCompositionData, FxNodeDefinition } from "./types.js";
 import { matchesFxNodeValueSchema } from "./value-matcher.js";
 
-interface HistoryEntry<C extends FxNodeCompositionData> {
-  readonly forward: readonly Mutation<C>[];
-  readonly inverse: readonly Mutation<C>[];
-}
-export interface BoundEngineState<C extends FxNodeCompositionData = FxNodeCompositionData> {
+/** Immutable engine state owned by one composition-bound headless runtime. */
+export interface EngineState<C extends FxNodeCompositionData = FxNodeCompositionData> {
   readonly version: number;
   readonly document: GraphDocument<C>;
-  readonly undo: readonly HistoryEntry<C>[];
-  readonly redo: readonly HistoryEntry<C>[];
+  readonly undo: readonly { readonly forward: readonly Mutation<C>[]; readonly inverse: readonly Mutation<C>[] }[];
+  readonly redo: readonly { readonly forward: readonly Mutation<C>[]; readonly inverse: readonly Mutation<C>[] }[];
   readonly historyLimit: number;
 }
-export interface BoundMutationEnvelope<C extends FxNodeCompositionData = FxNodeCompositionData> {
+/** A committed, versioned mutation batch. */
+export interface MutationEnvelope<C extends FxNodeCompositionData = FxNodeCompositionData> {
   readonly baseVersion: number;
   readonly version: number;
   readonly commandId: CommandId;
   readonly cause: "api" | "gesture" | "undo" | "redo" | "load" | "composition";
   readonly mutations: readonly Mutation<C>[];
 }
-export interface BoundSnapshotEnvelope<C extends FxNodeCompositionData = FxNodeCompositionData> {
+/** A versioned immutable graph snapshot. */
+export interface SnapshotEnvelope<C extends FxNodeCompositionData = FxNodeCompositionData> {
   readonly version: number;
   readonly snapshot: GraphSnapshot<C>;
 }
-export type BoundTransitionResult<C extends FxNodeCompositionData = FxNodeCompositionData> =
+/** Result of applying a command or state replacement. */
+export type TransitionResult<C extends FxNodeCompositionData = FxNodeCompositionData> =
   | {
       readonly status: "committed";
-      readonly state: BoundEngineState<C>;
-      readonly mutationEnvelope: BoundMutationEnvelope<C>;
-      readonly snapshotEnvelope: BoundSnapshotEnvelope<C>;
+      readonly state: EngineState<C>;
+      readonly mutationEnvelope: MutationEnvelope<C>;
+      readonly snapshotEnvelope: SnapshotEnvelope<C>;
     }
-  | { readonly status: "noop"; readonly state: BoundEngineState<C> }
-  | { readonly status: "rejected"; readonly state: BoundEngineState<C>; readonly error: CommandError };
-export interface BoundStateReplacementRequest<C extends FxNodeCompositionData = FxNodeCompositionData> {
+  | { readonly status: "noop"; readonly state: EngineState<C> }
+  | { readonly status: "rejected"; readonly state: EngineState<C>; readonly error: CommandError };
+export interface StateReplacementRequest<C extends FxNodeCompositionData = FxNodeCompositionData> {
   readonly commandId: CommandId;
   readonly expectedVersion: number;
   readonly target: GraphState<C>;
 }
-export type BoundLoadResult<C extends FxNodeCompositionData = FxNodeCompositionData> =
+/** Result of loading durable graph data. */
+export type LoadResult<C extends FxNodeCompositionData = FxNodeCompositionData> =
   | {
       readonly ok: true;
-      readonly state: BoundEngineState<C>;
-      readonly mutationEnvelope: BoundMutationEnvelope<C>;
-      readonly snapshotEnvelope: BoundSnapshotEnvelope<C>;
+      readonly state: EngineState<C>;
+      readonly mutationEnvelope: MutationEnvelope<C>;
+      readonly snapshotEnvelope: SnapshotEnvelope<C>;
     }
-  | { readonly ok: false; readonly state: BoundEngineState<C>; readonly issues: readonly BoundValidationIssue[] };
-export type BoundReplayResult<C extends FxNodeCompositionData = FxNodeCompositionData> =
+  | { readonly ok: false; readonly state: EngineState<C>; readonly issues: readonly BoundValidationIssue[] };
+export type ReplayResult<C extends FxNodeCompositionData = FxNodeCompositionData> =
   | {
       readonly ok: true;
       readonly status: "committed";
-      readonly state: BoundEngineState<C>;
-      readonly mutationEnvelope: BoundMutationEnvelope<C>;
-      readonly snapshotEnvelope: BoundSnapshotEnvelope<C>;
+      readonly state: EngineState<C>;
+      readonly mutationEnvelope: MutationEnvelope<C>;
+      readonly snapshotEnvelope: SnapshotEnvelope<C>;
       readonly saveData: CompatibleFxNodeSaveData<C>;
     }
   | {
       readonly ok: true;
       readonly status: "noop";
-      readonly state: BoundEngineState<C>;
+      readonly state: EngineState<C>;
       readonly saveData: CompatibleFxNodeSaveData<C>;
     }
-  | { readonly ok: false; readonly state: BoundEngineState<C>; readonly issues: readonly BoundValidationIssue[] };
+  | { readonly ok: false; readonly state: EngineState<C>; readonly issues: readonly BoundValidationIssue[] };
+type BoundEngineState<C extends FxNodeCompositionData = FxNodeCompositionData> = EngineState<C>;
+type BoundMutationEnvelope<C extends FxNodeCompositionData = FxNodeCompositionData> = MutationEnvelope<C>;
+type BoundSnapshotEnvelope<C extends FxNodeCompositionData = FxNodeCompositionData> = SnapshotEnvelope<C>;
+type BoundTransitionResult<C extends FxNodeCompositionData = FxNodeCompositionData> = TransitionResult<C>;
+type BoundStateReplacementRequest<C extends FxNodeCompositionData = FxNodeCompositionData> = StateReplacementRequest<C>;
+type BoundLoadResult<C extends FxNodeCompositionData = FxNodeCompositionData> = LoadResult<C>;
+type BoundReplayResult<C extends FxNodeCompositionData = FxNodeCompositionData> = ReplayResult<C>;
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b),
   reject = (code: string, message: string): CommandError => ({ code, message });
 function snapshotState<C extends FxNodeCompositionData>(state: BoundEngineState<C>): GraphSnapshot<C> {

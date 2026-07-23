@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { APPLICATION_HEADLESS } from "../test/application.js";
-import { APPLICATION_VERSION } from "../example/nodes/application.js";
+import { APPLICATION_VERSION } from "../examples/blender/nodes/application.js";
 
 const { materializeNode } = APPLICATION_HEADLESS;
 const plain = (id: string, type: Parameters<typeof materializeNode>[1], x: number, y: number) => {
@@ -97,7 +97,7 @@ const fixtures: Record<string, unknown> = {
   })(),
 };
 for (const [name, fixture] of Object.entries(fixtures)) {
-  const url = new URL(`../example/${name}/initialLayout.json`, import.meta.url),
+  const url = new URL(`../examples/blender/${name}/initialLayout.json`, import.meta.url),
     canonical = `${JSON.stringify(fixture, null, 2)}\n`;
   if (process.argv.includes("--write")) writeFileSync(url, canonical);
   else if (readFileSync(url, "utf8") !== canonical)

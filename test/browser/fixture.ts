@@ -1,5 +1,5 @@
-import { createApplicationFxNode } from "../../example/application-browser.js";
-import { prepareFxNodeBrowserHost } from "../../example/browser-host.js";
+import { createApplicationFxNode } from "../../examples/blender/application-browser.js";
+import { prepareFxNodeBrowserHost } from "../../examples/shared/browser-host.js";
 const initialLayout = { graphId: "browser", catalogVersion: 4, nodes: [], links: [], metadata: {} };
 window.ready = (async () => {
   const primary = document.querySelector<HTMLCanvasElement>("#primary");

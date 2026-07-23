@@ -10,8 +10,7 @@
     "dist",
     "README.md",
     "LICENSE",
-    "NOTICE.md",
-    "docs"
+    "NOTICE.md"
   ],
   "repository": {
     "type": "git",
@@ -41,14 +40,24 @@
     "test:browser": "playwright test --config playwright.config.ts",
     "test:visual": "playwright test --config playwright.visual.config.ts",
     "test:visual:update": "playwright test --config playwright.visual.config.ts --update-snapshots",
-    "example": "vite --config vite.config.ts example --host 127.0.0.1",
+    "examples": "vite --config vite.config.ts examples --host 127.0.0.1",
+    "example": "npm run examples",
+    "test:examples:visual": "playwright test --config playwright.examples.config.ts",
+    "test:examples:visual:update": "playwright test --config playwright.examples.config.ts --update-snapshots",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "build": "vite build && tsc -p tsconfig.build.json",
+    "check:readme": "tsx tools/check-readme.ts",
     "check:package": "tsx tools/check-package.ts",
-    "release:check": "npm run check && npm run test:browser && npm run test:visual && npm run check:package",
+    "docs:api": "typedoc --options typedoc.json",
+    "check:docs:api": "npm run docs:api && tsx tools/check-api-docs.ts",
+    "docs:dev": "npm run docs:api && vitepress dev docs",
+    "docs:build": "npm run docs:api && vitepress build docs",
+    "docs:preview": "vitepress preview docs",
+    "check:docs": "npm run check:docs:api && vitepress build docs",
+    "release:check": "npm run check && npm run check:readme && npm run check:docs && npm run test:browser && npm run test:visual && npm run test:examples:visual && npm run check:package",
     "prepublishOnly": "npm run release:check",
-    "check": "npm run typecheck && npm test && npm run check:performance && npm run check:all-supported && npm run check:example-fixture && npm run check:browser-fixtures && npm run build && npm run check:composition && npm run check:references",
+    "check": "npm run typecheck && npm test && npm run check:performance && npm run check:all-supported && npm run check:blender-fixture && npm run check:browser-fixtures && npm run build && npm run check:composition && npm run check:references",
     "check:performance": "tsx tools/performance-phase7.ts --check",
     "benchmark:performance": "tsx tools/performance-phase7.ts",
     "typecheck": "tsc --noEmit",
@@ -57,8 +66,8 @@
     "check:references:strict": "tsx tools/check-references.ts --strict",
     "generate:all-supported": "tsx tools/all-supported.ts --write",
     "check:all-supported": "tsx tools/all-supported.ts",
-    "generate:example-fixture": "tsx tools/example-fixture.ts --write",
-    "check:example-fixture": "tsx tools/example-fixture.ts",
+    "generate:blender-fixture": "tsx tools/blender-fixture.ts --write",
+    "check:blender-fixture": "tsx tools/blender-fixture.ts",
     "generate:browser-fixtures": "tsx tools/browser-fixtures.ts --write",
     "check:browser-fixtures": "tsx tools/browser-fixtures.ts"
   },
@@ -67,8 +76,12 @@
     "@types/node": "22.14.0",
     "prettier": "^3.6.2",
     "tsx": "4.19.2",
+    "typedoc": "0.28.20",
+    "typedoc-plugin-markdown": "4.12.0",
+    "typedoc-vitepress-theme": "1.1.3",
     "typescript": "5.7.2",
-    "vite": "6.1.0"
+    "vite": "6.1.0",
+    "vitepress": "1.6.4"
   },
   "engines": {
     "node": ">=20"

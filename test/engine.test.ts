@@ -18,12 +18,12 @@ const {
 } = APPLICATION_HEADLESS;
 const BUILTIN_DESCRIPTORS = Object.freeze([...APPLICATION_COMPILED.nodes.values()]);
 const CATALOG_NODE_IDS = [...APPLICATION_COMPILED.nodes.keys()];
-import type { BoundEngineState, Command, CommandRequest } from "@lib/headless.js";
+import type { EngineState, Command, CommandRequest } from "@lib/headless.js";
 
-type EngineState = BoundEngineState<typeof APPLICATION_COMPILED.source>;
+type ApplicationEngineState = EngineState<typeof APPLICATION_COMPILED.source>;
 
 let sequence = 0;
-function run(state: EngineState, command: Command) {
+function run(state: ApplicationEngineState, command: Command) {
   const request: CommandRequest = {
     commandId: commandId(`command-${++sequence}`),
     expectedVersion: state.version,
@@ -32,7 +32,7 @@ function run(state: EngineState, command: Command) {
   };
   return transition(state, request);
 }
-function committed(state: EngineState, command: Command): EngineState {
+function committed(state: ApplicationEngineState, command: Command): ApplicationEngineState {
   const result = run(state, command);
   assert.equal(result.status, "committed");
   if (result.status !== "committed") throw new Error("expected commit");

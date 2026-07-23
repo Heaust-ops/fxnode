@@ -1,6 +1,6 @@
 import { canonicalJsonEqual, deepFreeze, isRecord } from "../core/json.js";
 import type { GraphLayoutV2 } from "../core/types.js";
-import { bindDocument, type BoundValidationIssue } from "./bound-document.js";
+import { bindDocument, type ValidationIssue as BoundValidationIssue } from "./bound-document.js";
 import { compileFxNodeComposition } from "./compile.js";
 import type { FxNodeCompositionData, FxNodeDefinition, FxNodeValueSchema } from "./types.js";
 

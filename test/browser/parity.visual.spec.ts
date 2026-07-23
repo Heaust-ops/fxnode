@@ -8,7 +8,7 @@ async function stable(canvas: Locator): Promise<void> {
 
 test("@visual structural parity baseline and focused controls", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 960 });
-  await page.goto("/example/parity/");
+  await page.goto("/examples/blender/parity/");
   await page.waitForFunction(() => Boolean(window.parityExample));
   const canvas = page.locator("canvas");
   await canvas.press("Home");

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("@visual deterministic example canvas", async ({ page }) => {
-  await page.goto("/example/");
+  await page.goto("/examples/blender/");
   await page.evaluate(() => window.fxnodeExample.ready);
   await page.evaluate(() => window.fxnodeExample.rendered);
 
@@ -60,7 +60,7 @@ test("@visual deterministic example canvas", async ({ page }) => {
 });
 
 test("@visual distant zoom keeps text inside scaled nodes", async ({ page }) => {
-  await page.goto("/example/");
+  await page.goto("/examples/blender/");
   await page.evaluate(() => window.fxnodeExample.ready);
   const canvas = page.locator("#graph");
   await canvas.hover({ position: { x: 600, y: 320 } });
@@ -70,7 +70,7 @@ test("@visual distant zoom keeps text inside scaled nodes", async ({ page }) => 
 });
 
 test("@visual Blender-style numeric fields and text editing", async ({ page }) => {
-  await page.goto("/example/control-test/");
+  await page.goto("/examples/blender/control-test/");
   await page.evaluate(() => window.controlTest.ready);
   const canvas = page.locator("#controls");
   await expect(canvas).toHaveScreenshot("numeric-fields.png", { animations: "disabled" });

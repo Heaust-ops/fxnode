@@ -1,6 +1,6 @@
 import type { Command, FxNodeSaveData } from "../commands/types.js";
 import type { GraphLayoutV2, GraphSnapshot } from "../core/types.js";
-import type { BoundMutationEnvelope, BoundSnapshotEnvelope } from "../composition/bound-engine.js";
+import type { MutationEnvelope, SnapshotEnvelope } from "../composition/bound-engine.js";
 import { createInitialFxNodeComposition } from "../composition/compile.js";
 import {
   validCommandReceipt,
@@ -72,6 +72,9 @@ export class FxNodeCapabilityError extends Error {
 }
 export class FxNodeProtocolError extends Error {
   override name = "FxNodeProtocolError";
+  constructor(message?: string, options?: ErrorOptions) {
+    super(message, options);
+  }
 }
 export class FxNodeWorkerError extends Error {
   override name = "FxNodeWorkerError";
@@ -123,8 +126,8 @@ export interface FxNode {
   load(data: unknown, options?: { expectedVersion?: number }): Promise<CommandReceipt>;
   getState(): Promise<GraphSnapshot<FxNodeCompositionData>>;
   setState(state: unknown, options?: { expectedVersion?: number }): Promise<CommandReceipt>;
-  onMutations(callback: (event: BoundMutationEnvelope<FxNodeCompositionData>) => void): () => void;
-  onSnapshots(callback: (event: BoundSnapshotEnvelope<FxNodeCompositionData>) => void): () => void;
+  onMutations(callback: (event: MutationEnvelope<FxNodeCompositionData>) => void): () => void;
+  onSnapshots(callback: (event: SnapshotEnvelope<FxNodeCompositionData>) => void): () => void;
   setTheme(theme: FxNodeTheme, options?: CompositionUpdateOptions): Promise<CompositionReceipt>;
   setHeaderStyles(
     styles: Readonly<Record<string, FxNodeStyleDefinition>>,
@@ -199,8 +202,8 @@ class FxNodeClient implements FxNode {
   private readonly copies = new Map<number, Set<HTMLCanvasElement>>();
   private readonly mirrors = new Set<HTMLCanvasElement>();
   private readonly contexts = new WeakMap<HTMLCanvasElement, CanvasRenderingContext2D>();
-  private readonly mutations = new Set<(event: BoundMutationEnvelope<FxNodeCompositionData>) => void>();
-  private readonly snapshots = new Set<(event: BoundSnapshotEnvelope<FxNodeCompositionData>) => void>();
+  private readonly mutations = new Set<(event: MutationEnvelope<FxNodeCompositionData>) => void>();
+  private readonly snapshots = new Set<(event: SnapshotEnvelope<FxNodeCompositionData>) => void>();
   private readonly compositionChanges = new Set<(event: CompositionChangeEnvelope) => void>();
   private readonly unclaimedCompositionEvents = new Map<number, CompositionChangeEnvelope>();
   private compositionRevision: number | undefined;
@@ -785,12 +788,12 @@ class FxNodeClient implements FxNode {
     const expected = this.expected(options?.expectedVersion);
     return this.postCommand({ type: "state.set", state, expected }, expected);
   }
-  onMutations(callback: (event: BoundMutationEnvelope<FxNodeCompositionData>) => void) {
+  onMutations(callback: (event: MutationEnvelope<FxNodeCompositionData>) => void) {
     if (this.terminalError) throw this.terminalError;
     this.mutations.add(callback);
     return () => this.mutations.delete(callback);
   }
-  onSnapshots(callback: (event: BoundSnapshotEnvelope<FxNodeCompositionData>) => void) {
+  onSnapshots(callback: (event: SnapshotEnvelope<FxNodeCompositionData>) => void) {
     if (this.terminalError) throw this.terminalError;
     this.snapshots.add(callback);
     return () => this.snapshots.delete(callback);

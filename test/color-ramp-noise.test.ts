@@ -10,6 +10,7 @@ import {
   moveRampStop,
   removeRampStop,
   sampleColorRamp,
+  setRampColor,
   type ColorRamp,
 } from "@lib/widgets/color-ramp.js";
 const DEFAULT_COLOR_RAMP: ColorRamp = {
@@ -57,6 +58,24 @@ test("Color Ramp migration, validation and stable pure operations", () => {
     [0, 0.5, 1],
   );
   assert.deepEqual(sampleColorRamp({ ...DEFAULT_COLOR_RAMP, interpolation: "constant" }, 0.5), [0, 0, 0, 1]);
+});
+
+test("Color Ramp public operations preserve validity for empty IDs and non-finite numbers", () => {
+  for (const position of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    assert.equal(addRampStop(DEFAULT_COLOR_RAMP, position, "new"), DEFAULT_COLOR_RAMP);
+    assert.equal(moveRampStop(DEFAULT_COLOR_RAMP, "stop-0", position), DEFAULT_COLOR_RAMP);
+    assert.deepEqual(sampleColorRamp(DEFAULT_COLOR_RAMP, position), DEFAULT_COLOR_RAMP.stops[0]!.color);
+  }
+  assert.equal(addRampStop(DEFAULT_COLOR_RAMP, 0.5, ""), DEFAULT_COLOR_RAMP);
+  for (let channel = 0; channel < 4; channel++) {
+    const color = [0, 0, 0, 1] as number[];
+    color[channel] = Number.NaN;
+    assert.equal(
+      setRampColor(DEFAULT_COLOR_RAMP, "stop-0", color as [number, number, number, number]),
+      DEFAULT_COLOR_RAMP,
+    );
+  }
+  assert.equal(isColorRamp(DEFAULT_COLOR_RAMP), true);
 });
 
 test("Noise Texture exhaustive Blender 4.5 visibility matrix and immediate height", () => {

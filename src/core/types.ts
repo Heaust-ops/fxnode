@@ -1,13 +1,11 @@
 import type { FxNodeCompositionData, NodeTypeId } from "../composition/types.js";
 
 declare const brand: unique symbol;
-type Branded<T extends string> = string & { readonly [brand]: T };
-
-export type NodeId = Branded<"NodeId">;
-export type LinkId = Branded<"LinkId">;
-export type SocketId = Branded<"SocketId">;
-export type CommandId = Branded<"CommandId">;
-export type GraphId = Branded<"GraphId">;
+export type NodeId = string & { readonly [brand]: "NodeId" };
+export type LinkId = string & { readonly [brand]: "LinkId" };
+export type SocketId = string & { readonly [brand]: "SocketId" };
+export type CommandId = string & { readonly [brand]: "CommandId" };
+export type GraphId = string & { readonly [brand]: "GraphId" };
 export type JsonValue = null | boolean | number | string | readonly JsonValue[] | { readonly [key: string]: JsonValue };
 export interface Vec2 {
   readonly x: number;

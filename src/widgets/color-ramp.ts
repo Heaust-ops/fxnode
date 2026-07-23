@@ -1,3 +1,13 @@
+/**
+ * Immutable color-ramp model, mutations, migration, and sampling.
+ *
+ * Valid ramps contain 2–32 uniquely identified, position-sorted stops. Mutations
+ * preserve those invariants and clamp finite positions/channels to [0, 1]. `hsl`
+ * is currently identical to `hsv` (it is not HSL). `b-spline` uses the same easing
+ * as `ease`; `cardinal` is a two-stop approximation without neighbourhood spline
+ * evaluation.
+ * @module fxnode/widgets/color-ramp
+ */
 export type ColorRampMode = "rgb" | "hsv" | "hsl";
 export type ColorRampInterpolation = "linear" | "ease" | "constant" | "cardinal" | "b-spline";
 export type HueInterpolation = "near" | "far" | "clockwise" | "counter-clockwise";
@@ -65,10 +75,12 @@ const sorted = (r: ColorRamp, stops: readonly ColorRampStop[]): ColorRamp => ({
   ...r,
   stops: [...stops].sort((a, b) => a.position - b.position),
 });
+/** Selects the indexed stop at an exact position, or returns `undefined`. */
 export const selectRampStop = (r: ColorRamp, position: number, index = 0): string | undefined =>
   r.stops.filter((s) => s.position === position)[index]?.id;
+/** Adds a sampled stop, preserving ramp validity; invalid IDs/positions are no-ops. */
 export function addRampStop(r: ColorRamp, position: number, id: string): ColorRamp {
-  if (r.stops.length >= 32 || r.stops.some((s) => s.id === id)) return r;
+  if (!id || !Number.isFinite(position) || r.stops.length >= 32 || r.stops.some((s) => s.id === id)) return r;
   return sorted(r, [...r.stops, { id, position: clamp(position), color: sampleColorRamp(r, position) }]);
 }
 /** Blender's plus inserts halfway between active and its left neighbour (or right neighbour for the first stop). */
@@ -83,12 +95,14 @@ export function removeRampStop(r: ColorRamp, id: string): ColorRamp {
   return r.stops.length <= 2 ? r : { ...r, stops: r.stops.filter((s) => s.id !== id) };
 }
 export function moveRampStop(r: ColorRamp, id: string, position: number): ColorRamp {
+  if (!Number.isFinite(position)) return r;
   return sorted(
     r,
     r.stops.map((s) => (s.id === id ? { ...s, position: clamp(position) } : s)),
   );
 }
 export function setRampColor(r: ColorRamp, id: string, color: readonly [number, number, number, number]): ColorRamp {
+  if (!color.every(Number.isFinite)) return r;
   return {
     ...r,
     stops: r.stops.map((s) =>
@@ -142,7 +156,9 @@ function hueDelta(a: number, b: number, mode: HueInterpolation) {
   if (mode === "counter-clockwise" && d > 0) d -= 1;
   return d;
 }
+/** Samples a valid ramp; non-finite positions safely sample its first stop. */
 export function sampleColorRamp(r: ColorRamp, position: number): readonly [number, number, number, number] {
+  if (!Number.isFinite(position)) return r.stops[0]!.color;
   const p = clamp(position),
     right = r.stops.findIndex((s) => s.position >= p);
   if (right <= 0) return r.stops[Math.max(0, right)]!.color;

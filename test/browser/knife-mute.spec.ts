@@ -13,7 +13,7 @@ const MAP = {
 } as const;
 
 async function open(page: Page) {
-  await page.goto("/example/link-tools-test/");
+  await page.goto("/examples/blender/link-tools-test/");
   await page.evaluate(() => window.linkToolsTest.ready);
   await page.evaluate(() => {
     const events = { mutations: [] as number[], snapshots: [] as number[] };

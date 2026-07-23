@@ -26,8 +26,6 @@ export const FXNODE_COMPOSITION_LIMITS = Object.freeze({
   maxImageDimension: 8192,
   maxImagePixels: 16_777_216,
 });
-/** @deprecated use FXNODE_COMPOSITION_LIMITS */
-export const FX_NODE_COMPOSITION_LIMITS = FXNODE_COMPOSITION_LIMITS;
 export interface FxNodeCompositionIssue {
   readonly code: string;
   readonly path: string;

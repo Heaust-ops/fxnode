@@ -113,7 +113,7 @@ test("right-click DOM menu searches and adds through one worker gesture", async 
 });
 
 test("right-click on a node and Ctrl-RMB never open the add menu", async ({ page }) => {
-  await page.goto("/example/");
+  await page.goto("/examples/blender/");
   await page.evaluate(() => window.fxnodeExample.ready);
   const canvas = page.locator("#graph"),
     dialog = page.getByRole("dialog", { name: "Add node" });

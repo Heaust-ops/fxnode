@@ -9,14 +9,14 @@ test("core lifecycle owns no DOM state and the host adapter cleans up its policy
     window.fxnodeHost.destroy();
     window.api.destroy();
     const { createFxNode } = await import("@lib/index.js");
-    const { prepareFxNodeBrowserHost } = await import("../../example/browser-host.js");
+    const { prepareFxNodeBrowserHost } = await import("../../examples/shared/browser-host.js");
     const { APPLICATION_ID, APPLICATION_RESOURCES, APPLICATION_VERSION, APPLICATION_HEADER_STYLES } = await import(
-      "../../example/nodes/application.js"
+      "../../examples/blender/nodes/application.js"
     );
-    const { applicationTheme } = await import("../../example/nodes/theme.js");
-    const { anySocket, floatSocket } = await import("../../example/nodes/socket-types.js");
-    const { valueNode } = await import("../../example/nodes/shader/value.js");
-    const { applicationCompatibility } = await import("../../example/nodes/application.js");
+    const { exampleTheme } = await import("../../examples/shared/theme.js");
+    const { anySocket, floatSocket } = await import("../../examples/blender/nodes/socket-types.js");
+    const { valueNode } = await import("../../examples/blender/nodes/shader/value.js");
+    const { applicationCompatibility } = await import("../../examples/blender/nodes/application.js");
     const layout = { schemaVersion: 1, graphId: "lifecycle", catalogVersion: 7, nodes: [], links: [], metadata: {} };
     const applicationOptions = {
       applicationId: APPLICATION_ID,
@@ -36,7 +36,7 @@ test("core lifecycle owns no DOM state and the host adapter cleans up its policy
     const width = canvas.width,
       height = canvas.height;
     const installValue = async (api: Awaited<ReturnType<typeof createFxNode>>) => {
-      await api.setTheme(applicationTheme);
+      await api.setTheme(exampleTheme);
       await api.setHeaderStyles(APPLICATION_HEADER_STYLES);
       await api.composeSocket(...anySocket);
       await api.composeSocket(...floatSocket);
@@ -121,7 +121,7 @@ test("direct client never touches DOM lifecycle APIs", async ({ page }) => {
     window.api.destroy();
     const { createFxNode } = await import("@lib/index.js"),
       { APPLICATION_ID, APPLICATION_RESOURCES, APPLICATION_VERSION } = await import(
-        "../../example/nodes/application.js"
+        "../../examples/blender/nodes/application.js"
       ),
       canvas = document.querySelector<HTMLCanvasElement>("#primary")!,
       NativeObserver = ResizeObserver;
@@ -205,9 +205,9 @@ test("browser host is exclusive and preserves application DOM changes on cleanup
     window.fxnodeHost.destroy();
     window.api.destroy();
     const { createFxNode } = await import("@lib/index.js"),
-      { prepareFxNodeBrowserHost } = await import("../../example/browser-host.js"),
+      { prepareFxNodeBrowserHost } = await import("../../examples/shared/browser-host.js"),
       { APPLICATION_ID, APPLICATION_RESOURCES, APPLICATION_VERSION } = await import(
-        "../../example/nodes/application.js"
+        "../../examples/blender/nodes/application.js"
       ),
       canvas = document.querySelector<HTMLCanvasElement>("#primary")!;
     canvas.removeAttribute("tabindex");
@@ -257,7 +257,7 @@ test("worker resource requests close delayed add-menu UI without intercepting in
   await page.goto("/test/browser/index.html");
   await page.evaluate(() => window.ready);
   const result = await page.evaluate(async () => {
-    const { prepareFxNodeBrowserHost } = await import("../../example/browser-host.js"),
+    const { prepareFxNodeBrowserHost } = await import("../../examples/shared/browser-host.js"),
       canvas = document.createElement("canvas");
     canvas.style.cssText = "width:200px;height:120px";
     document.body.append(canvas);
@@ -350,7 +350,7 @@ test("default resource picker ignores obsolete asynchronous reads", async ({ pag
   await page.goto("/test/browser/index.html");
   await page.evaluate(() => window.ready);
   const result = await page.evaluate(async () => {
-    const { prepareFxNodeBrowserHost } = await import("../../example/browser-host.js"),
+    const { prepareFxNodeBrowserHost } = await import("../../examples/shared/browser-host.js"),
       canvas = document.createElement("canvas");
     canvas.style.cssText = "width:100px;height:100px";
     document.body.append(canvas);

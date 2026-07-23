@@ -16,7 +16,7 @@ test("direct input preserves modifiers, SAB ordering, and right-button menu rule
     Object.defineProperties(window, { phase1Messages: { value: messages }, phase1Lane: { get: () => lane } });
     Object.defineProperty(window, "Worker", { value: Spy });
   });
-  await page.goto("/example/");
+  await page.goto("/examples/blender/");
   await page.evaluate(() => window.fxnodeExample.ready);
   const result = await page.evaluate(async () => {
     const api = window.fxnodeExample.api!,
@@ -125,7 +125,7 @@ test("direct input preserves modifiers, SAB ordering, and right-button menu rule
 });
 
 test("direct input invalidates a pending add-menu request", async ({ page }) => {
-  await page.goto("/example/");
+  await page.goto("/examples/blender/");
   await page.evaluate(() => window.fxnodeExample.ready);
   await page.evaluate(() => {
     const api = window.fxnodeExample.api!,
@@ -354,7 +354,7 @@ test("worker gestures stay transient and commit exactly one paired event", async
     Object.defineProperty(window, "Worker", { value: TrackedWorker });
     Object.defineProperty(window, "pointerMoveMessages", { get: () => moves });
   });
-  await page.goto("/example/");
+  await page.goto("/examples/blender/");
   await page.evaluate(() => window.fxnodeExample.ready);
   expect(await page.evaluate(() => crossOriginIsolated)).toBe(true);
   await page.evaluate(() => {
@@ -437,7 +437,7 @@ test("non-isolated hosts retain the ordered pointer message fallback", async ({ 
     Object.defineProperty(window, "Worker", { value: TrackedWorker });
     Object.defineProperty(window, "pointerMoveMessages", { get: () => moves });
   });
-  await page.goto("/example/");
+  await page.goto("/examples/blender/");
   await page.evaluate(() => window.fxnodeExample.ready);
   expect(await page.evaluate(() => crossOriginIsolated)).toBe(false);
   const canvas = page.locator("#graph"),
@@ -478,7 +478,7 @@ test("wheel input visibly zooms around the pointer without changing graph state"
     Object.defineProperty(window, "Worker", { value: TrackedWorker });
     Object.defineProperty(window, "wheelMessages", { get: () => wheels });
   });
-  await page.goto("/example/");
+  await page.goto("/examples/blender/");
   await page.evaluate(() => window.fxnodeExample.ready);
   const canvas = page.locator("#graph"),
     before = await canvas.screenshot(),

@@ -1,6 +1,9 @@
 import type { Command, FxNodeSaveData } from "../commands/types.js";
 import type { GraphLayoutV2, GraphSnapshot } from "../core/types.js";
-import type { BoundMutationEnvelope, BoundSnapshotEnvelope } from "../composition/bound-engine.js";
+import type {
+  MutationEnvelope as BoundMutationEnvelope,
+  SnapshotEnvelope as BoundSnapshotEnvelope,
+} from "../composition/bound-engine.js";
 import type { FxNodeCompositionData } from "../composition/types.js";
 import type { PointerLaneSnapshot } from "./pointer-lane.js";
 import { FXNODE_COMPOSITION_LIMITS } from "../composition/validate.js";

@@ -33,14 +33,19 @@ import type {
 import { matchesFxNodeValueSchema } from "./value-matcher.js";
 import { initialNodeSize } from "../layout/node-dimensions.js";
 
-export interface BoundValidationIssue {
+/** A persistence or graph validation problem, with a stable code and JSON-pointer path. */
+export interface ValidationIssue {
   readonly code: string;
   readonly path: string;
   readonly message: string;
 }
-export type BoundDecodeResult<C extends FxNodeCompositionData> =
+/** Result of decoding durable graph data under a compiled composition. */
+export type DecodeResult<C extends FxNodeCompositionData> =
   | { readonly ok: true; readonly value: GraphDocument<C> }
-  | { readonly ok: false; readonly issues: readonly BoundValidationIssue[] };
+  | { readonly ok: false; readonly issues: readonly ValidationIssue[] };
+
+type BoundValidationIssue = ValidationIssue;
+type BoundDecodeResult<C extends FxNodeCompositionData> = DecodeResult<C>;
 
 export function graphStateFromDocument<C extends FxNodeCompositionData>(document: GraphDocument<C>): GraphState<C> {
   return deepFreeze({

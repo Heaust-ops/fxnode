@@ -1,8 +1,8 @@
 import type { FxNodeCompositionData, NodeTypeId } from "../composition/types.js";
 import {
   PERSISTENCE_LIMITS,
-  type BoundDecodeResult,
-  type BoundValidationIssue,
+  type DecodeResult as BoundDecodeResult,
+  type ValidationIssue as BoundValidationIssue,
 } from "../composition/bound-document.js";
 import { saveCompositionCompatibility } from "../composition/save-compatibility.js";
 import { FXNODE_COMPOSITION_LIMITS, validateFxNodeComposition } from "../composition/validate.js";

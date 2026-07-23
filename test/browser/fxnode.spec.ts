@@ -64,7 +64,7 @@ test("host snapshots are stable immutable projections with isolated subscription
   });
 });
 test("getState is detached and setState is atomic, ordered, and undoable", async ({ page }) => {
-  await page.goto("/example/");
+  await page.goto("/examples/blender/");
   await page.evaluate(() => window.fxnodeExample.ready);
   const result = await page.evaluate(async () => {
     const api = window.fxnodeExample.api!,

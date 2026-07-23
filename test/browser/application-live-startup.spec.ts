@@ -45,7 +45,7 @@ test("example installs every startup node through the live worker API", async ({
     }
     Object.defineProperty(window, "Worker", { configurable: true, writable: true, value: StartupWorker });
   });
-  await page.goto("/example/");
+  await page.goto("/examples/blender/");
   await page.evaluate(() => window.fxnodeExample.ready);
   const result = await page.evaluate(async () => {
     const messages = (window as unknown as { applicationStartupMessages: { sent: any[]; received: any[] } })
@@ -82,7 +82,7 @@ test("example installs every startup node through the live worker API", async ({
       redo,
       restored,
       saved: await api.save(),
-      initialLayout: await (await fetch("/example/initialLayout.json")).json(),
+      initialLayout: await (await fetch("/examples/blender/initialLayout.json")).json(),
     };
   });
   expect(result.initKeys).toEqual([

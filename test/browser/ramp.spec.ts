@@ -34,7 +34,7 @@ const P = Object.freeze({
 } satisfies Record<string, Point>);
 
 async function open(page: Page) {
-  await page.goto("/example/ramp-test/");
+  await page.goto("/examples/blender/ramp-test/");
   await page.evaluate(() => (window as unknown as RampWindow).rampTest.ready);
   await page.evaluate(() => {
     const w = window as unknown as RampWindow;

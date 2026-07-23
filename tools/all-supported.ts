@@ -104,7 +104,7 @@ export const initialLayout = {
   ...persistedLayout,
   nodes: persistedLayout.nodes.map((node) => ({ ...node, known: true })),
 };
-const path = new URL("../example/all-supported/initialLayout.json", import.meta.url),
+const path = new URL("../examples/blender/all-supported/initialLayout.json", import.meta.url),
   canonical = JSON.stringify(initialLayout, null, 2) + "\n";
 if (process.argv.includes("--write")) writeFileSync(path, canonical);
 else {

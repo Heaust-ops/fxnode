@@ -23,11 +23,11 @@ import {
   setHeaderStyles,
   setTheme,
 } from "@lib/composition/compose.js";
-import { APPLICATION_ID, APPLICATION_RESOURCES, APPLICATION_VERSION } from "../example/nodes/application.js";
+import { APPLICATION_ID, APPLICATION_RESOURCES, APPLICATION_VERSION } from "../examples/blender/nodes/application.js";
 import type {
   createApplicationFxNode as CreateApplicationFxNode,
   ApplicationFxNode,
-} from "../example/application-browser.js";
+} from "../examples/blender/application-browser.js";
 
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 type Expect<T extends true> = T;

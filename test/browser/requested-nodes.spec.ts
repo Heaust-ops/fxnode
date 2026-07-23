@@ -36,7 +36,7 @@ const P = Object.freeze({
 
 async function open(page: Page) {
   await page.setViewportSize({ width: 1280, height: 1200 });
-  await page.goto("/example/parity/");
+  await page.goto("/examples/blender/parity/");
   await page.waitForFunction(() => !!window.parityExample);
   await page.evaluate(() => {
     const w = window as typeof window & { requestedEvents: { m: number[]; s: number[] } };

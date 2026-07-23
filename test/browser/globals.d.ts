@@ -1,5 +1,5 @@
 import type { FxNode } from "@lib/index.js";
-import type { PreparedFxNodeBrowserHost } from "../../example/browser-host.js";
+import type { PreparedFxNodeBrowserHost } from "../../examples/shared/browser-host.js";
 type LegacyFxNode = FxNode;
 
 declare global {

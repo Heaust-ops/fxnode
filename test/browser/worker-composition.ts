@@ -1,5 +1,5 @@
 import { createFxNode, type FxNode, type FxNodeCompositionData } from "@lib/index.js";
-import { prepareFxNodeBrowserHost, type PreparedFxNodeBrowserHost } from "../../example/browser-host.js";
+import { prepareFxNodeBrowserHost, type PreparedFxNodeBrowserHost } from "../../examples/shared/browser-host.js";
 import type { FxNodeResourceOpenRequest } from "@lib/index.js";
 import type { GraphState } from "@lib/core/types.js";
 
